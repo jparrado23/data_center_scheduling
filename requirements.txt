@@ -1,0 +1,7 @@
+gurobipy
+pandas
+numpy
+matplotlib
+pydantic
+pytest
+jupyter

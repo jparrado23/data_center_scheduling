@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "energy-ai-datacenter-optimization"
+version = "0.1.0"
+description = "MILP baseline and future quantum roadmap for AI data-center energy scheduling."
+requires-python = ">=3.12"
+dependencies = [
+    "gurobipy",
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "jupyter"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
