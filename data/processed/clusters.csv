@@ -1,0 +1,5 @@
+cluster_id,capacity_kw,capacity,compatible_categories
+cluster_a,10.4,0.0104,inference
+cluster_b,93.5,0.0935,"fine_tuning,training,preprocessing"
+cluster_c,124.8,0.1248,"fine_tuning,training,preprocessing"
+cluster_d,25.0,0.025,"fine_tuning,preprocessing"

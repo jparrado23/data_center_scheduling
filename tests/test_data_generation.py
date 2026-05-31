@@ -16,7 +16,7 @@ def test_generate_toy_dataset_has_expected_schema():
     validate_clusters(clusters_df)
 
     assert len(hourly_df) == 24
-    assert config.contracted_power == 70.0
+    assert config.contracted_power == 0.20
     assert set(jobs_df.columns) == {"job_id", "category", "duration", "power", "earliest_start", "latest_start"}
     assert set(clusters_df.columns) == {"cluster_id", "capacity", "compatible_categories"}
     assert set(hourly_df.columns) == {"hour", "renewable_available", "grid_price"}

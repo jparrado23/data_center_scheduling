@@ -9,6 +9,11 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+!data/processed/clusters.csv
+!data/processed/job_types.csv
+!data/processed/jobs.csv
+!data/processed/hourly_inputs.csv
+!data/processed/config.json
 experiments/outputs/*
 !experiments/outputs/.gitkeep
 

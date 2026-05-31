@@ -6,8 +6,24 @@ Future processed inputs should use:
 
 - `data/processed/jobs.csv`
 - `data/processed/hourly_inputs.csv`
-- `data/processed/clusters.json`
+- `data/processed/clusters.csv`
+- `data/processed/job_types.csv`
 - `data/processed/config.json`
+
+The catalog files `clusters.csv` and `job_types.csv` are now initialized from the thesis assumptions. Concrete experiment instances still need `jobs.csv`, where each row is one actual job sampled or selected from the job-type ranges.
+
+The current `jobs.csv` instance was generated with seed `42` using:
+
+- 8 inference jobs
+- 15 fine-tuning jobs
+- 20 training jobs
+- 15 preprocessing jobs
+
+Regenerate it with:
+
+```bash
+conda run -n quantum_py312 python -m src.data.instances
+```
 
 Expected `jobs.csv` schema:
 
@@ -21,23 +37,27 @@ Expected `hourly_inputs.csv` schema:
 hour,renewable_available,grid_price
 ```
 
-Expected `clusters.json` schema:
+Expected `clusters.csv` schema:
 
-```json
-[
-  {
-    "cluster_id": "gpu_a100",
-    "capacity": 32,
-    "compatible_categories": ["training", "inference"]
-  }
-]
+```text
+cluster_id,capacity_kw,capacity,compatible_categories
 ```
+
+`capacity_kw` preserves the source value. `capacity` is the model-ready value in MW.
+
+Expected `job_types.csv` schema:
+
+```text
+job_type,power_min_kw,power_max_kw,power_min,power_max,max_start_delay_hours,duration_min_hours,duration_max_hours,start_window_note
+```
+
+`power_min_kw` and `power_max_kw` preserve the source values. `power_min` and `power_max` are model-ready values in MW.
 
 Expected `config.json` schema:
 
 ```json
 {
-  "contracted_power": 70,
+  "contracted_power": 0.20,
   "renewable_price": 50,
   "peak_price": 1000,
   "delta_t": 1

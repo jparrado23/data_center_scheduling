@@ -19,36 +19,36 @@ def generate_toy_jobs() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "job_id": "train_small",
-                "category": "training",
-                "duration": 3,
-                "power": 18.0,
+                "job_id": "inference_24h",
+                "category": "inference",
+                "duration": 24,
+                "power": 0.0011,
                 "earliest_start": 0,
-                "latest_start": 10,
+                "latest_start": 0,
             },
             {
-                "job_id": "batch_eval",
-                "category": "inference",
-                "duration": 2,
-                "power": 10.0,
-                "earliest_start": 4,
+                "job_id": "fine_tune_small",
+                "category": "fine_tuning",
+                "duration": 3,
+                "power": 0.0032,
+                "earliest_start": 0,
+                "latest_start": 4,
+            },
+            {
+                "job_id": "training_medium",
+                "category": "training",
+                "duration": 7,
+                "power": 0.0062,
+                "earliest_start": 0,
                 "latest_start": 16,
             },
             {
                 "job_id": "preprocess",
-                "category": "data_processing",
-                "duration": 4,
-                "power": 8.0,
-                "earliest_start": 0,
-                "latest_start": 12,
-            },
-            {
-                "job_id": "fine_tune",
-                "category": "training",
+                "category": "preprocessing",
                 "duration": 3,
-                "power": 14.0,
-                "earliest_start": 8,
-                "latest_start": 20,
+                "power": 0.0014,
+                "earliest_start": 0,
+                "latest_start": 21,
             },
         ]
     )
@@ -60,24 +60,24 @@ def generate_toy_clusters() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "cluster_id": "gpu_training_1",
-                "capacity": 32.0,
-                "compatible_categories": ["training"],
-            },
-            {
-                "cluster_id": "gpu_training_2",
-                "capacity": 24.0,
-                "compatible_categories": ["training", "inference"],
-            },
-            {
-                "cluster_id": "gpu_inference",
-                "capacity": 22.0,
+                "cluster_id": "cluster_a",
+                "capacity": 0.0104,
                 "compatible_categories": ["inference"],
             },
             {
-                "cluster_id": "cpu_batch",
-                "capacity": 16.0,
-                "compatible_categories": ["data_processing"],
+                "cluster_id": "cluster_b",
+                "capacity": 0.0935,
+                "compatible_categories": ["fine_tuning", "training", "preprocessing"],
+            },
+            {
+                "cluster_id": "cluster_c",
+                "capacity": 0.1248,
+                "compatible_categories": ["fine_tuning", "training", "preprocessing"],
+            },
+            {
+                "cluster_id": "cluster_d",
+                "capacity": 0.025,
+                "compatible_categories": ["fine_tuning", "preprocessing"],
             },
         ]
     )
@@ -91,7 +91,7 @@ def generate_toy_hourly_inputs(num_hours: int = 24) -> pd.DataFrame:
     """
 
     hours = np.arange(num_hours)
-    renewable_available = np.maximum(0.0, 34.0 * np.sin((hours - 6) / 12 * np.pi))
+    renewable_available = np.maximum(0.0, 0.08 * np.sin((hours - 6) / 12 * np.pi))
     grid_price = np.where((hours >= 17) & (hours <= 21), 145.0, 85.0)
     grid_price = np.where((hours >= 0) & (hours <= 5), 65.0, grid_price)
 
@@ -112,7 +112,7 @@ def generate_toy_config() -> ModelConfig:
     """
 
     return ModelConfig(
-        contracted_power=70.0,
+        contracted_power=0.20,
         renewable_price=50.0,
         peak_price=1000.0,
         delta_t=1.0,

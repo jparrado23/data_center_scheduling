@@ -73,3 +73,21 @@ def extract_hourly_results(hourly_df: pd.DataFrame, variables: dict[str, Any]) -
             }
         )
     return pd.DataFrame(rows)
+
+
+def extract_cluster_hourly_results(variables: dict[str, Any]) -> pd.DataFrame:
+    """Build a per-cluster, per-hour load table from solved expressions."""
+
+    rows = []
+    for cluster in variables["clusters"]:
+        capacity = variables["cluster_data"][cluster]["capacity"]
+        for hour in variables["hours"]:
+            rows.append(
+                {
+                    "cluster_id": cluster,
+                    "hour": hour,
+                    "cluster_load": variables["cluster_load"][(cluster, hour)].getValue(),
+                    "capacity": capacity,
+                }
+            )
+    return pd.DataFrame(rows)

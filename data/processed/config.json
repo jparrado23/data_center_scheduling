@@ -1,0 +1,6 @@
+{
+  "contracted_power": 0.2,
+  "renewable_price": 50.0,
+  "peak_price": 1000.0,
+  "delta_t": 1.0
+}
