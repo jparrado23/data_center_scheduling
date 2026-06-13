@@ -1,39 +1,99 @@
 # Energy-Aware Scheduling for AI Data Centers
 
-This repository contains the code used for my master thesis work on scheduling
-flexible AI workloads against data-center power and energy constraints.
+AI data centers run workloads with very different timing requirements. Some
+jobs must be served immediately, while others can be delayed within a limited
+window without affecting the final service. At the same time, operators face
+power-cap limits, volatile electricity prices, renewable availability, and peak
+demand charges. The result is a scheduling problem: decide when and where to run
+flexible AI jobs so that compute demand is served while energy cost and power
+stress are reduced.
 
-At this stage the useful part of the project is the classical MILP baseline. It
-uses Gurobi to schedule jobs over a 24-hour horizon on four heterogeneous
-clusters. The quantum and QUBO directories are kept in the tree because they are
-part of the thesis plan, but they should be treated as work in progress rather
-than finished implementations.
+This project builds an optimization framework for that problem. The current
+focus is a mixed-integer linear programming (MILP) model that schedules flexible
+AI workloads over a 24-hour horizon across heterogeneous data-center clusters.
+The model uses Gurobi to choose job start times, cluster assignments, renewable
+energy use, grid energy use, and peak-load behavior.
 
-## What The MILP Does
+The goal is to create a reliable baseline that can answer questions such as:
 
-The model schedules jobs with a category, duration, power demand, and feasible
-start window. Each job is assigned to one compatible cluster and one start time.
-Once started, a job runs without interruption on the same cluster until it
-finishes.
+- Which jobs should be shifted to cheaper or cleaner hours?
+- Which cluster should run each workload type?
+- How much grid energy is needed after using available renewable energy?
+- What is the tradeoff between energy cost, peak demand, and scheduling
+  flexibility?
+- How should exact optimization compare against heuristic and future
+  quantum-inspired approaches?
 
-The current formulation includes:
+The quantum-related directories are present because they are part of the planned
+method comparison, but that work has not started yet.
 
-- cluster-specific capacity limits;
+## Problem Being Solved
+
+The system receives a set of AI jobs. Each job has:
+
+- a workload category, such as training, inference, preprocessing, or
+  fine-tuning;
+- a duration;
+- a power requirement;
+- an earliest and latest allowed start time.
+
+The data center contains multiple clusters. Each cluster has:
+
+- a maximum power capacity;
+- a set of compatible job categories;
+- its own role in the scheduling decision.
+
+For every hour in the planning horizon, the model also receives:
+
+- available renewable energy;
+- optional fixed baseline load;
+- grid energy price;
+- contracted power as a hard operational cap;
+- peak demand charges based on maximum hourly load;
+- renewable and peak-demand pricing parameters.
+
+The scheduler must assign every flexible job to exactly one compatible cluster
+and one feasible start time. Once a job starts, it runs continuously until its
+duration is complete. Across the full schedule, cluster capacities must not be
+violated. Peak demand is measured from the maximum total facility load.
+
+## How The Project Addresses It
+
+The current implementation formulates the scheduling task as a MILP. Binary
+decision variables select flexible job start times and cluster assignments.
+Continuous variables track contracted renewable consumption, grid residual
+consumption, curtailment, and peak load. The objective minimizes total operator
+cost, combining:
+
+- grid energy cost;
+- contracted renewable cost;
+- peak-demand cost.
+
+The model distinguishes fixed baseline load from controllable flexible demand.
+For the thesis problem, inference can be represented as fixed baseline load
+outside the optimized job set, while fine-tuning, training, and preprocessing
+remain schedulable.
+
+## Current MILP Capabilities
+
+The implemented model includes:
+
+- non-preemptive job scheduling;
+- heterogeneous cluster capacities;
 - job-category compatibility constraints;
-- a contracted-power limit across all clusters;
-- renewable and grid energy balance variables;
-- grid, renewable, and peak-demand costs in the objective.
-
-The baseline intentionally ignores fixed, non-flexible facility load for now.
-That keeps the first experiments focused on the controllable AI workload. A
-fixed load profile can be added later without changing the main scheduling
-structure.
+- per-cluster power limits;
+- contracted power as a hard operational cap;
+- peak demand charges based on maximum hourly load;
+- contracted renewable first, with grid consumption as residual demand;
+- renewable curtailment reporting;
+- peak-load minimization through the cost function;
+- result extraction, metrics, and plotting utilities.
 
 ## Repository Layout
 
 ```text
 data/                  Raw and processed input data
-docs/                  Formulation notes and project roadmap
+docs/                  Formulation notes, project roadmap, and price files
 notebooks/             Toy examples and experiment notebooks
 src/data/              Synthetic data, processed instances, and loaders
 src/milp/              Gurobi model construction and solve helpers
@@ -56,11 +116,9 @@ tests/                 Unit tests
 
 ## Setup
 
-The project is set up for Python 3.12. In my local workspace I use the Conda
-environment `quantum_py312`.
+Use Python 3.12.
 
 ```bash
-conda activate quantum_py312
 pip install -r requirements.txt
 pip install -e .
 ```
@@ -70,30 +128,57 @@ license server.
 
 ## Running The Main Examples
 
-The small MILP example is in:
+Solve one thesis scenario from terminal with:
+
+```bash
+conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
+  --workload tense \
+  --scenario base
+```
+
+This command reads repo-local inputs from:
+
+- `data/instances/` for workload instances;
+- `data/solar_profile/monthly_solar_profiles.csv` for monthly hourly solar
+  availability;
+- `docs/energy_price/` for OMIE representative-day prices.
+
+It writes `schedule.csv`, `hourly_results.csv`,
+`cluster_hourly_results.csv`, and `metrics.csv` under
+`experiments/outputs/<workload>_<scenario>/` unless `--output-dir` is provided.
+
+Available workload cases are `light`, `tense`, and `limit`. Available energy
+scenarios are `clear_sky`, `overcast`, and `base`.
+
+Run the toy MILP notebook with:
 
 ```bash
 jupyter notebook notebooks/01_milp_toy_example.ipynb
 ```
 
-It builds a synthetic instance, solves it with Gurobi, extracts the selected
-schedule, computes basic cost and load metrics, and plots the hourly profiles.
+The notebook builds a synthetic instance, solves it with Gurobi, extracts the
+selected schedule, computes cost and load metrics, and plots the hourly
+profiles.
 
 The synthetic input tables use the following columns:
 
 - `jobs_df`: `job_id`, `category`, `duration`, `power`, `earliest_start`,
   `latest_start`
 - `clusters_df`: `cluster_id`, `capacity`, `compatible_categories`
-- `hourly_df`: `hour`, `renewable_available`, `grid_price`
-- `config`: `contracted_power`, `renewable_price`, `peak_price`, `delta_t`
+- `hourly_df`: `hour`, `renewable_available`, `grid_price`, optional
+  `baseline_load`
+- `config`: `contracted_power` hard operational cap, `renewable_price`,
+  `peak_price` demand-charge rate, `delta_t`
 
-For a processed instance, use:
+To solve a processed instance, use:
 
 ```bash
 jupyter notebook notebooks/05_solve_processed_instance.ipynb
 ```
 
-Point `DATA_DIR` in that notebook to a folder containing:
+By default, that notebook builds the same repo-local thesis scenario as the
+terminal script. Set `BUILD_FROM_SOURCE = False` only if you want to solve a
+preassembled processed folder containing:
 
 ```text
 jobs.csv
@@ -104,8 +189,8 @@ config.json
 
 The current processed data folder also includes:
 
-- `clusters.csv`, with the thesis cluster assumptions in both source kW and
-  model-ready MW;
+- `clusters.csv`, with cluster assumptions in both source kW and model-ready
+  MW;
 - `job_types.csv`, with power, duration, and start-delay ranges for each job
   type;
 - `jobs.csv`, a generated instance based on those job-type ranges.
@@ -132,5 +217,5 @@ Still under development:
 - QAOA and quantum annealing experiments;
 - broader experiment automation.
 
-The overall thesis roadmap is tracked in
+The project roadmap is tracked in
 [`docs/PROJECT_ROADMAP.md`](docs/PROJECT_ROADMAP.md).

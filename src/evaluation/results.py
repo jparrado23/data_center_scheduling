@@ -50,24 +50,27 @@ def extract_schedule(jobs_df: pd.DataFrame, variables: dict[str, Any], tolerance
 def extract_hourly_results(hourly_df: pd.DataFrame, variables: dict[str, Any]) -> pd.DataFrame:
     """Build a per-hour result table from solved model variables.
 
-    The output combines the original hourly inputs with the optimized total
-    load, renewable consumption, and grid consumption values so the solution
-    can be plotted or post-processed directly. Note: `baseline_load` is no
-    longer expected in the hourly inputs; `flexible_load` is equal to the
-    optimized `total_load` in the current formulation.
+    The output combines the original hourly inputs with the optimized flexible
+    load, optional fixed baseline load, total facility load, renewable
+    consumption, curtailment, and grid residual demand.
     """
 
     rows = []
     hourly_lookup = hourly_df.set_index("hour")
     for hour in variables["hours"]:
+        flexible = variables["flexible_load"][hour].getValue()
         total = variables["total_load"][hour].getValue()
+        renewable_available = float(hourly_lookup.loc[hour, "renewable_available"])
+        renewable_consumption = variables["R"][hour].X
         rows.append(
             {
                 "hour": hour,
-                "flexible_load": total,
+                "baseline_load": float(variables["baseline_load"][hour]),
+                "flexible_load": flexible,
                 "total_load": total,
-                "renewable_available": float(hourly_lookup.loc[hour, "renewable_available"]),
-                "renewable_consumption": variables["R"][hour].X,
+                "renewable_available": renewable_available,
+                "renewable_consumption": renewable_consumption,
+                "renewable_curtailment": max(0.0, renewable_available - renewable_consumption),
                 "grid_consumption": variables["Q"][hour].X,
                 "grid_price": float(hourly_lookup.loc[hour, "grid_price"]),
             }
@@ -81,13 +84,16 @@ def extract_cluster_hourly_results(variables: dict[str, Any]) -> pd.DataFrame:
     rows = []
     for cluster in variables["clusters"]:
         capacity = variables["cluster_data"][cluster]["capacity"]
+        gpu_capacity = variables["cluster_data"][cluster].get("gpu_capacity")
         for hour in variables["hours"]:
-            rows.append(
-                {
-                    "cluster_id": cluster,
-                    "hour": hour,
-                    "cluster_load": variables["cluster_load"][(cluster, hour)].getValue(),
-                    "capacity": capacity,
-                }
-            )
+            row = {
+                "cluster_id": cluster,
+                "hour": hour,
+                "cluster_load": variables["cluster_load"][(cluster, hour)].getValue(),
+                "capacity": capacity,
+            }
+            if gpu_capacity is not None and (cluster, hour) in variables["cluster_gpu_load"]:
+                row["cluster_gpu_load"] = variables["cluster_gpu_load"][(cluster, hour)].getValue()
+                row["gpu_capacity"] = gpu_capacity
+            rows.append(row)
     return pd.DataFrame(rows)

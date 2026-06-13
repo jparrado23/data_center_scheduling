@@ -8,7 +8,7 @@ The data center has heterogeneous compute clusters. Each cluster has its own pow
 
 The goal is to schedule jobs to minimize total energy-related cost:
 
-1. Renewable energy consumption cost.
+1. Contracted renewable energy cost.
 2. Grid energy consumption cost.
 3. Peak demand cost.
 
@@ -16,20 +16,26 @@ The base model explicitly captures:
 
 - time-dependent grid prices,
 - forecasted renewable availability,
+- optional fixed baseline load,
 - job categories,
 - cluster-category compatibility,
 - heterogeneous cluster capacities,
-- total contracted power,
+- contracted power as a hard operational cap,
+- peak demand charges based on maximum hourly load,
 - non-preemptive flexible jobs,
+- renewable curtailment,
 - peak demand cost.
 
-The base formulation does not include non-flexible baseline load. That keeps the first model focused on the controllable AI workload. A fixed exogenous load can be added later as an extension if the thesis needs whole-facility load accounting.
+The formulation distinguishes fixed non-shiftable baseline load from optimized
+flexible load. In the thesis setting, inference and Zone A can be represented as
+baseline load outside the decision variable, while fine-tuning, training, and
+preprocessing remain schedulable over Zones B, C, and D.
 
 ## 2. Modelling Assumptions
 
 1. The scheduling horizon is 24 hourly slots.
 2. Each flexible workload is represented as one job.
-3. Each job belongs to one category, such as `training`, `inference`, or `data_processing`.
+3. Each job belongs to one category, such as `training`, `inference`, `data_processing` or `fine_tuning`
 4. Each job is non-preemptive: after it starts, it runs for `d_i` consecutive hours without interruption.
 5. A non-preemptive job stays on the same cluster for its full duration.
 6. Each job has constant power demand while running.
@@ -38,15 +44,15 @@ The base formulation does not include non-flexible baseline load. That keeps the
 9. A compatibility matrix determines which job categories can run on which clusters.
 10. Renewable availability is forecasted and exogenous.
 11. Grid prices are known over the horizon.
-12. Renewable price is constant.
+12. Renewable price is a fixed contracted/PPA price.
 13. Peak demand charge is a real economic billing term, not an artificial penalty.
-14. Total contracted power limits aggregate data-center power.
+14. Contracted power is a hard operational cap on total facility load.
+15. Peak demand charge is applied to the maximum facility load reached during the horizon.
 
 Non-preemption is relevant because the decision variable can be a compact start-time assignment `x_{i,k,s}`. If preemption were allowed, the model would need additional run-state variables by job, cluster, and hour, plus constraints for remaining processing time, migration, continuity, and possibly checkpointing overhead.
 
 Possible future extensions include:
 
-- fixed non-flexible facility load,
 - finer time resolution,
 - heterogeneous job power profiles,
 - battery storage,
@@ -167,7 +173,13 @@ $$
 G_t
 $$
 
-is the forecasted renewable power available.
+is the contracted or dedicated renewable power available.
+
+$$
+B_t
+$$
+
+is the fixed non-shiftable baseline load, such as inference load.
 
 $$
 \pi^{grid}_t
@@ -181,7 +193,9 @@ $$
 \pi^{ren}
 $$
 
-is the contracted renewable electricity price.
+is the contracted renewable electricity price. The operator is assumed to pay
+for available contracted renewable energy; unused renewable availability is
+reported as curtailment.
 
 $$
 \pi^{peak}
@@ -193,7 +207,8 @@ $$
 P^{contracted}
 $$
 
-is the maximum total power available to the data center.
+is the maximum contracted facility power. It is enforced as a hard operational
+cap on total load.
 
 $$
 \Delta t = 1
@@ -255,12 +270,12 @@ $$
 
 This is the sum of compatible flexible jobs assigned to cluster $k$ and active at hour $t$.
 
-### 6.2 Total Data-Center Load
+### 6.2 Flexible and Total Data-Center Load
 
-The total load of the data center at hour $t$ is:
+The flexible load of the data center at hour $t$ is:
 
 $$
-L_t(x)
+L^{flex}_t(x)
 =
 \sum_{k \in \mathcal{K}} L_{k,t}(x)
 $$
@@ -268,7 +283,7 @@ $$
 Equivalently:
 
 $$
-L_t(x)
+L^{flex}_t(x)
 =
 \sum_{k \in \mathcal{K}}
 \sum_{i \in \mathcal{I}}
@@ -276,9 +291,16 @@ L_t(x)
 p_i A_{i,s,t}x_{i,k,s}
 $$
 
+The total facility load includes fixed baseline load:
+
+$$
+L_t(x) = B_t + L^{flex}_t(x)
+$$
+
 ### 6.3 Energy-Source Balance
 
-At each hour, total scheduled workload load must be supplied by renewable and grid energy:
+At each hour, total facility load is supplied first by contracted renewable
+energy and then by grid residual demand:
 
 $$
 R_t + Q_t = L_t(x)
@@ -294,6 +316,16 @@ R_t \leq G_t
 \quad \forall t \in \mathcal{T}
 $$
 
+Curtailment is not a decision variable in the current MILP. It is reported after
+solving as:
+
+$$
+U_t = G_t - R_t
+$$
+
+where positive $U_t$ is contracted renewable energy that could not be absorbed
+by facility demand.
+
 ### 6.5 Peak Load Definition
 
 The peak variable must be at least as large as total load in every hour:
@@ -303,7 +335,9 @@ P^{peak} \geq L_t(x)
 \quad \forall t \in \mathcal{T}
 $$
 
-Since $P^{peak}$ appears in the objective with positive coefficient $\pi^{peak}$, the optimizer sets:
+Since peak demand appears in the objective with positive coefficient
+$\pi^{peak}$, the optimizer has no incentive to set $P^{peak}$ above the maximum
+hourly load:
 
 $$
 P^{peak} = \max_{t \in \mathcal{T}} L_t(x)
@@ -324,13 +358,13 @@ x_{i,k,s}
 \quad \forall i \in \mathcal{I}
 $$
 
-### 7.2 Compatibility Constraint
+### 7.2 Compatibility Domain Reduction
 
-A job can only be assigned to a compatible cluster:
+Compatibility is imposed before model construction by creating variables only
+for compatible job-cluster pairs:
 
 $$
-x_{i,k,s} \leq C_{i,k}
-\quad \forall i \in \mathcal{I},\; k \in \mathcal{K},\; s \in \mathcal{S}_i
+x_{i,k,s} \text{ exists only when } C_{i,k}=1
 $$
 
 ### 7.3 Energy-Source Balance
@@ -338,6 +372,8 @@ $$
 $$
 R_t + Q_t
 =
+B_t
++
 \sum_{k \in \mathcal{K}}
 \sum_{i \in \mathcal{I}}
 \sum_{s \in \mathcal{S}_i}
@@ -361,6 +397,7 @@ P^{peak}
 \sum_{i \in \mathcal{I}}
 \sum_{s \in \mathcal{S}_i}
 p_i A_{i,s,t}x_{i,k,s}
+\;+\;B_t
 \quad \forall t \in \mathcal{T}
 $$
 
@@ -377,32 +414,26 @@ P^{cluster}_k
 \quad \forall k \in \mathcal{K},\; t \in \mathcal{T}
 $$
 
-### 7.7 Total Contracted-Power Constraint
+### 7.7 Contracted-Power Constraint
 
 The full data-center load cannot exceed contracted power:
 
 $$
-\sum_{k \in \mathcal{K}}
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
-p_i A_{i,s,t}x_{i,k,s}
-\leq
-P^{contracted}
+L_t(x) \leq P^{contracted}
 \quad \forall t \in \mathcal{T}
 $$
 
-Unlike in the earlier homogeneous-cluster version, this constraint is not generally redundant. Aggregate contracted power can be lower than the sum of individual cluster capacities.
-
 ## 8. Objective Function
 
-The objective is to minimize energy cost plus peak demand cost:
+The objective is to minimize contracted renewable cost, grid residual cost, and
+peak demand cost:
 
 $$
 \min
 \left[
 \sum_{t \in \mathcal{T}}
 \left(
-\pi^{ren}R_t
+\pi^{ren}G_t
 +
 \pi^{grid}_tQ_t
 \right)\Delta t
@@ -410,6 +441,12 @@ $$
 \pi^{peak}P^{peak}
 \right]
 $$
+
+The $\pi^{ren}G_t$ term is constant for a given scenario, but it keeps reported
+operator cost aligned with the dedicated/PPA renewable framing. Renewable-first
+consumption is enforced directly by the MILP constraints, so the model does not
+discard contracted renewable energy merely because a grid price is low or
+negative.
 
 ## 9. Implementation Notes for Gurobi
 
@@ -425,6 +462,12 @@ job_id,category,duration,power,earliest_start,latest_start
 
 ```text
 hour,renewable_available,grid_price
+```
+
+Optional:
+
+```text
+baseline_load
 ```
 
 `clusters_df` columns:

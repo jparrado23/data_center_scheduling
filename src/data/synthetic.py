@@ -107,8 +107,8 @@ def generate_toy_hourly_inputs(num_hours: int = 24) -> pd.DataFrame:
 def generate_toy_config() -> ModelConfig:
     """Create a compact configuration that keeps the toy instance feasible.
 
-    The values are tuned so the generated data fit within the contracted power
-    and cluster-capacity assumptions used by the notebooks.
+    The values are tuned so the generated data fit within the cluster-capacity
+    assumptions used by the notebooks.
     """
 
     return ModelConfig(

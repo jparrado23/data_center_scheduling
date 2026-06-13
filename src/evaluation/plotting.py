@@ -9,16 +9,23 @@ import pandas as pd
 def plot_hourly_profiles(hourly_results: pd.DataFrame) -> plt.Figure:
     """Plot the solved load and supply profiles on a single time-series chart.
 
-    The figure overlays scheduled workload load, renewable availability,
-    renewable usage, and grid usage to make the energy balance visible.
+    The figure overlays flexible load, optional fixed baseline, total load,
+    renewable availability, renewable usage, curtailment, and grid residual
+    demand to make the energy balance visible.
     """
 
     fig, ax = plt.subplots(figsize=(12, 6))
     hour = hourly_results["hour"]
 
-    ax.plot(hour, hourly_results["total_load"], marker="o", label="Scheduled workload load")
+    if "baseline_load" in hourly_results.columns:
+        ax.plot(hour, hourly_results["baseline_load"], linestyle=":", label="Fixed baseline load")
+    if "flexible_load" in hourly_results.columns:
+        ax.plot(hour, hourly_results["flexible_load"], marker="o", label="Flexible workload load")
+    ax.plot(hour, hourly_results["total_load"], marker="o", linewidth=2, label="Total facility load")
     ax.plot(hour, hourly_results["renewable_available"], linestyle="--", label="Renewable availability")
     ax.plot(hour, hourly_results["renewable_consumption"], marker="s", label="Renewable consumption")
+    if "renewable_curtailment" in hourly_results.columns:
+        ax.plot(hour, hourly_results["renewable_curtailment"], linestyle="--", label="Renewable curtailment")
     ax.plot(hour, hourly_results["grid_consumption"], marker="s", label="Grid consumption")
 
     ax.set_xlabel("Hour")
