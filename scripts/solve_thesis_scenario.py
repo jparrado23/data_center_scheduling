@@ -86,7 +86,7 @@ def main() -> None:
         "total_cost",
         "energy_cost",
         "grid_cost",
-        "renewable_contract_cost",
+        "renewable_cost",
         "peak_load",
         "peak_over_contracted",
         "peak_cost",

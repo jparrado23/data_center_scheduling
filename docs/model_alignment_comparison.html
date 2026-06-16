@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Model Alignment Discussion</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #5b6775;
+      --line: #d9e2ec;
+      --soft: #f5f7fa;
+      --accent: #1f6f8b;
+      --warn: #9f580a;
+      --ok: #256f3a;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 28px 64px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 34px;
+      line-height: 1.15;
+    }
+    h2 {
+      margin: 36px 0 12px;
+      font-size: 22px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 17px;
+    }
+    p {
+      margin: 8px 0;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 16px;
+      margin-bottom: 24px;
+    }
+    .note {
+      background: var(--soft);
+      border-left: 4px solid var(--accent);
+      padding: 14px 16px;
+      margin: 18px 0;
+    }
+    .warning {
+      background: #fff8eb;
+      border-left-color: var(--warn);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 26px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #eef3f8;
+      font-weight: 650;
+    }
+    tr:nth-child(even) td {
+      background: #fbfcfd;
+    }
+    code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      background: #eef3f8;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .decision {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 12px 0;
+      background: #ffffff;
+    }
+    .decision strong {
+      color: var(--accent);
+    }
+    ul {
+      padding-left: 22px;
+    }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 650;
+      background: #e8f5ee;
+      color: var(--ok);
+      margin-left: 6px;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Model Alignment Discussion</h1>
+  <p class="subtitle">Comparison between Ciro's Layer 1 classical model and the current repository MILP.</p>
+
+  <div class="note">
+    <p><strong>Purpose.</strong> This note is not a code review. It highlights modeling choices that should be aligned before adding more complex classical, QUBO, or annealing approaches.</p>
+  </div>
+
+  <h2>High-Level Summary</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Topic</th>
+        <th>Ciro's Classical Notebook</th>
+        <th>Current Repository Model</th>
+        <th>Meeting Decision Needed</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Peak / contracted power</td>
+        <td>Contracted power is treated as a soft threshold. The model pays only for excess above <code>P_LIM</code>.</td>
+        <td>Contracted power is now aligned as a soft threshold. The model may schedule load above <code>contracted_power</code> and pays an excess peak charge.</td>
+        <td>Mostly aligned. Confirm the numerical contracted-power value and excess peak price.</td>
+      </tr>
+      <tr>
+        <td>Power representation</td>
+        <td>Uses <code>e_kw_avg</code> for energy cost and <code>e_kw_peak</code> for capacity and peak.</td>
+        <td>Uses one power value <code>e_kw</code> / <code>power</code> for energy, capacity, and peak.</td>
+        <td>Decide if jobs need both average and peak power profiles.</td>
+      </tr>
+      <tr>
+        <td>Renewable energy</td>
+        <td>Renewable and grid split is optimized economically with <code>ren + grid = load</code> and <code>ren <= solar</code>.</td>
+        <td>Dedicated solar is consumed first: <code>renewable_consumption = min(solar_available, total_load)</code>. Grid is residual.</td>
+        <td>Decide whether solar is physically dedicated or only a priced supply option.</td>
+      </tr>
+      <tr>
+        <td>Renewable price</td>
+        <td>Renewable cost is charged only for renewable energy consumed.</td>
+        <td>Current framing now charges renewable energy consumed, and the solver can choose grid when it is cheaper.</td>
+        <td>Clarify PPA/LCOE assumption: pay for available contracted solar or only consumed solar?</td>
+      </tr>
+      <tr>
+        <td>GPU constraints</td>
+        <td>Reads job GPU requirements but does not enforce cluster GPU capacity in the classical model.</td>
+        <td>Enforces hourly GPU capacity when jobs have <code>gpus</code> and clusters have <code>gpu_capacity</code>.</td>
+        <td>Confirm whether GPU capacity should remain a hard scheduling constraint.</td>
+      </tr>
+      <tr>
+        <td>Baseline inference load</td>
+        <td>Uses a fixed inference baseline <code>C_A = 7.28 kW</code>.</td>
+        <td>Uses configurable fixed baseline load, currently <code>0.010 MW</code> by default.</td>
+        <td>Align the numerical value for Zone A / inference baseline.</td>
+      </tr>
+      <tr>
+        <td>Cluster capacities</td>
+        <td>Uses B/C/D capacities in kW: B 54.6, C 145.6, D 11.6.</td>
+        <td>Uses the same B/C/D power capacities converted to MW.</td>
+        <td>Mostly aligned. Confirm whether capacities are average, peak, IT load, or facility load.</td>
+      </tr>
+      <tr>
+        <td>Handling infeasibility</td>
+        <td>Some infeasible cases still show extracted cost/load numbers in the notebook output.</td>
+        <td>Solver wrapper raises an error for infeasible/unbounded models.</td>
+        <td>Agree that infeasible runs should not be compared by cost.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Key Modeling Differences</h2>
+
+  <h3>1. Contracted Power And Peak Billing</h3>
+  <p>Ciro's model currently uses an excess-only peak expression:</p>
+  <p><code>peak_penalty = lambda_peak * max(0, peak_load - P_LIM)</code></p>
+  <p>The current repository model uses two separate concepts:</p>
+  <ul>
+    <li><code>peak_over_contract = max(0, max_t(total_load_t) - contracted_power)</code>.</li>
+    <li><code>peak_cost = peak_price * peak_over_contract</code>.</li>
+  </ul>
+  <div class="note warning">
+    <p><strong>Implication.</strong> Both models should now allow schedules above contracted power if the excess peak charge is paid. This is a soft economic condition, not a feasibility condition.</p>
+  </div>
+
+  <h3>2. Average Power Vs Peak Power</h3>
+  <p>Ciro's job data distinguishes:</p>
+  <ul>
+    <li><code>e_kw_avg</code>: used for energy consumption and energy cost.</li>
+    <li><code>e_kw_peak</code>: used for capacity and peak-demand calculations.</li>
+  </ul>
+  <p>The current repository model uses one job power value for all purposes. Ciro's distinction is more detailed and may be worth adopting if we trust the generated values.</p>
+
+  <h3>3. Renewable Dispatch Logic</h3>
+  <p>Ciro's model lets the solver choose renewable or grid supply subject to renewable availability. This is appropriate if renewable energy is a contract/pricing option.</p>
+  <p>The repository model assumes dedicated solar is physically available behind the data center or contractually taken first. It therefore uses available solar before grid energy.</p>
+  <div class="decision">
+    <p><strong>Decision:</strong> Should renewable and grid be economically dispatched hour by hour?</p>
+  </div>
+
+  <h3>4. Cost Of Unused Renewable Energy</h3>
+  <p>Both models should charge renewable cost on renewable energy consumed. Unused renewable availability is reported as curtailment.</p>
+  <p>This makes the optimizer sensitive to the relationship between renewable price and grid price in each hour.</p>
+
+  <h3>5. GPU Capacity</h3>
+  <p>The repository model enforces GPU capacity per cluster and hour. Ciro's classical notebook reads the <code>gpus</code> column but does not appear to include a GPU-capacity constraint.</p>
+  <p>If GPU availability is real, this should remain a hard constraint in the aligned model.</p>
+
+  <h2>Recommended Alignment Choices</h2>
+  <div class="decision">
+    <p><strong>A. Contracted power:</strong> Treat as a soft threshold with excess peak charge.</p>
+  </div>
+  <div class="decision">
+    <p><strong>B. Peak charge:</strong> Charge only the maximum load above contracted power: <code>peak_price * max(0, peak_load - contracted_power)</code>.</p>
+  </div>
+  <div class="decision">
+    <p><strong>C. Job power:</strong> Consider adopting <code>e_kw_avg</code> for energy cost and <code>e_kw_peak</code> for physical capacity/peak constraints.</p>
+  </div>
+  <div class="decision">
+    <p><strong>D. Renewable handling:</strong> Decide explicitly between dedicated solar consumed first and economic renewable/grid dispatch.</p>
+  </div>
+  <div class="decision">
+    <p><strong>E. Infeasible cases:</strong> Do not compare objective values for infeasible runs. Mark them as infeasible and stop extraction.</p>
+  </div>
+
+  <h2>Proposed Meeting Questions</h2>
+  <ol>
+    <li>What contracted-power value should be used?</li>
+    <li>What excess peak price should be used?</li>
+    <li>Should jobs have both average and peak power values?</li>
+    <li>Should cluster capacity be checked against average power, peak power, or both?</li>
+    <li>Is solar physically dedicated to the data center or only indirectly sourced through the grid?</li>
+    <li>Do we pay for all contracted solar availability or only consumed renewable energy?</li>
+    <li>Should GPU capacity be included in every classical and QUBO formulation?</li>
+    <li>Which baseline inference load should be used: 7.28 kW, 10 kW, or another value?</li>
+  </ol>
+
+  <h2>Bottom Line</h2>
+  <p>Ciro's notebooks are valuable for exploring the idea, especially the average-vs-peak power split and the initial QUBO variable construction. The main remaining Layer 0 alignment topics are average-vs-peak job power, GPU-capacity consistency, baseline load value, and the exact cost parameters.</p>
+</main>
+</body>
+</html>

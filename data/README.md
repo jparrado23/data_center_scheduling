@@ -120,9 +120,9 @@ load before renewable/grid split and peak evaluation.
 hour,renewable_available,grid_price,baseline_load
 ```
 
-`renewable_available` is contracted/dedicated renewable power in MW. The model
-uses it before grid energy; `grid_price` applies to residual demand after
-available renewable supply. Unused renewable availability is reported as
+`renewable_available` is renewable power available in MW. The model chooses the
+renewable/grid split economically from `renewable_price` and `grid_price`, while
+all demand must be served. Unused renewable availability is reported as
 curtailment.
 
 OMIE `MARGINALPDBC` files are stored under `docs/energy_price/`. They can be
@@ -225,6 +225,5 @@ Expected `config.json` schema:
 }
 ```
 
-`contracted_power` is a hard operational cap on total facility load.
-`peak_price` is charged against the maximum hourly total load, not only against
-load above the contracted cap.
+`contracted_power` is a soft peak-charge threshold. The model may exceed it,
+but pays `peak_price` on the maximum load above the contracted threshold.

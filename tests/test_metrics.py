@@ -34,8 +34,8 @@ def test_compute_summary_metrics():
     assert metrics["renewable_curtailment_mwh"] == 2.0
     assert metrics["grid_energy_mwh"] == 21.0
     assert metrics["grid_cost"] == 3600.0
-    assert metrics["renewable_cost"] == 550.0
+    assert metrics["renewable_cost"] == 450.0
     assert metrics["contracted_power"] == 0.2
     assert metrics["peak_over_contracted"] == 19.8
-    assert metrics["peak_cost"] == 20000.0
-    assert metrics["total_cost"] == 24150.0
+    assert metrics["peak_cost"] == 19800.0
+    assert metrics["total_cost"] == 23850.0

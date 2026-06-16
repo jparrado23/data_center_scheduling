@@ -48,8 +48,8 @@ For every hour in the planning horizon, the model also receives:
 - available renewable energy;
 - optional fixed baseline load;
 - grid energy price;
-- contracted power as a hard operational cap;
-- peak demand charges based on maximum hourly load;
+- contracted power as a soft peak-charge threshold;
+- peak demand charges on load above contracted power;
 - renewable and peak-demand pricing parameters.
 
 The scheduler must assign every flexible job to exactly one compatible cluster
@@ -61,12 +61,12 @@ violated. Peak demand is measured from the maximum total facility load.
 
 The current implementation formulates the scheduling task as a MILP. Binary
 decision variables select flexible job start times and cluster assignments.
-Continuous variables track contracted renewable consumption, grid residual
-consumption, curtailment, and peak load. The objective minimizes total operator
-cost, combining:
+Continuous variables track renewable consumption, grid consumption,
+curtailment, peak load, and peak load above contracted power. The objective
+minimizes total operator cost, combining:
 
 - grid energy cost;
-- contracted renewable cost;
+- renewable energy cost;
 - peak-demand cost.
 
 The model distinguishes fixed baseline load from controllable flexible demand.
@@ -82,9 +82,9 @@ The implemented model includes:
 - heterogeneous cluster capacities;
 - job-category compatibility constraints;
 - per-cluster power limits;
-- contracted power as a hard operational cap;
-- peak demand charges based on maximum hourly load;
-- contracted renewable first, with grid consumption as residual demand;
+- contracted power as a soft peak-charge threshold;
+- peak demand charges on load above contracted power;
+- economic renewable/grid dispatch based on input prices;
 - renewable curtailment reporting;
 - peak-load minimization through the cost function;
 - result extraction, metrics, and plotting utilities.
@@ -167,8 +167,8 @@ The synthetic input tables use the following columns:
 - `clusters_df`: `cluster_id`, `capacity`, `compatible_categories`
 - `hourly_df`: `hour`, `renewable_available`, `grid_price`, optional
   `baseline_load`
-- `config`: `contracted_power` hard operational cap, `renewable_price`,
-  `peak_price` demand-charge rate, `delta_t`
+- `config`: `contracted_power` soft peak-charge threshold, `renewable_price`,
+  `peak_price` excess-demand rate, `delta_t`
 
 To solve a processed instance, use:
 

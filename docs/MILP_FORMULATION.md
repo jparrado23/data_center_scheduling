@@ -20,8 +20,8 @@ The base model explicitly captures:
 - job categories,
 - cluster-category compatibility,
 - heterogeneous cluster capacities,
-- contracted power as a hard operational cap,
-- peak demand charges based on maximum hourly load,
+- contracted power as a soft peak-charge threshold,
+- peak demand charges on load above contracted power,
 - non-preemptive flexible jobs,
 - renewable curtailment,
 - peak demand cost.
@@ -46,8 +46,8 @@ preprocessing remain schedulable over Zones B, C, and D.
 11. Grid prices are known over the horizon.
 12. Renewable price is a fixed contracted/PPA price.
 13. Peak demand charge is a real economic billing term, not an artificial penalty.
-14. Contracted power is a hard operational cap on total facility load.
-15. Peak demand charge is applied to the maximum facility load reached during the horizon.
+14. Contracted power is a soft economic threshold.
+15. Peak demand charge is applied to the maximum facility load above contracted power.
 
 Non-preemption is relevant because the decision variable can be a compact start-time assignment `x_{i,k,s}`. If preemption were allowed, the model would need additional run-state variables by job, cluster, and hour, plus constraints for remaining processing time, migration, continuity, and possibly checkpointing overhead.
 
@@ -173,7 +173,7 @@ $$
 G_t
 $$
 
-is the contracted or dedicated renewable power available.
+is the renewable power available.
 
 $$
 B_t
@@ -193,9 +193,8 @@ $$
 \pi^{ren}
 $$
 
-is the contracted renewable electricity price. The operator is assumed to pay
-for available contracted renewable energy; unused renewable availability is
-reported as curtailment.
+is the renewable electricity price. Renewable use is chosen economically against
+the grid price subject to availability.
 
 $$
 \pi^{peak}
@@ -207,8 +206,7 @@ $$
 P^{contracted}
 $$
 
-is the maximum contracted facility power. It is enforced as a hard operational
-cap on total load.
+is the contracted-power threshold above which peak charges apply.
 
 $$
 \Delta t = 1
@@ -246,13 +244,19 @@ $$
 
 grid power consumed at hour $t$.
 
-Peak variable:
+Peak variables:
 
 $$
 P^{peak} \geq 0
 $$
 
 maximum data-center power reached over the horizon.
+
+$$
+E^{peak} \geq 0
+$$
+
+power above the contracted-power threshold.
 
 ## 6. Physical Relationships
 
@@ -299,8 +303,7 @@ $$
 
 ### 6.3 Energy-Source Balance
 
-At each hour, total facility load is supplied first by contracted renewable
-energy and then by grid residual demand:
+At each hour, total facility load is served by renewable and grid energy:
 
 $$
 R_t + Q_t = L_t(x)
@@ -323,8 +326,8 @@ $$
 U_t = G_t - R_t
 $$
 
-where positive $U_t$ is contracted renewable energy that could not be absorbed
-by facility demand.
+where positive $U_t$ is available renewable energy not consumed by the optimal
+economic dispatch.
 
 ### 6.5 Peak Load Definition
 
@@ -414,18 +417,18 @@ P^{cluster}_k
 \quad \forall k \in \mathcal{K},\; t \in \mathcal{T}
 $$
 
-### 7.7 Contracted-Power Constraint
+### 7.7 Contracted-Power Excess Relationship
 
-The full data-center load cannot exceed contracted power:
+The full data-center load may exceed contracted power, but excess peak is
+charged:
 
 $$
-L_t(x) \leq P^{contracted}
-\quad \forall t \in \mathcal{T}
+E^{peak} \geq P^{peak} - P^{contracted}
 $$
 
 ## 8. Objective Function
 
-The objective is to minimize contracted renewable cost, grid residual cost, and
+The objective is to minimize renewable cost, grid cost, and
 peak demand cost:
 
 $$
@@ -433,20 +436,18 @@ $$
 \left[
 \sum_{t \in \mathcal{T}}
 \left(
-\pi^{ren}G_t
+\pi^{ren}R_t
 +
 \pi^{grid}_tQ_t
 \right)\Delta t
 +
-\pi^{peak}P^{peak}
+\pi^{peak}E^{peak}
 \right]
 $$
 
-The $\pi^{ren}G_t$ term is constant for a given scenario, but it keeps reported
-operator cost aligned with the dedicated/PPA renewable framing. Renewable-first
-consumption is enforced directly by the MILP constraints, so the model does not
-discard contracted renewable energy merely because a grid price is low or
-negative.
+Renewable and grid consumption are optimized economically. If grid energy is
+cheaper than renewable energy in a specific hour, the model can choose grid
+energy instead of consuming all available renewable energy.
 
 ## 9. Implementation Notes for Gurobi
 

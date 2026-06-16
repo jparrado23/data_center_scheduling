@@ -54,7 +54,7 @@ For each hour:
 
 Other parameters:
 
-- $P^{contracted}$: hard operational cap on total facility load.
+- $P^{contracted}$: soft contracted-power threshold for peak excess charges.
 - $B_t$: fixed non-shiftable baseline load, such as inference.
 - $\Delta t$: time-slot length, normally 1 hour.
 - $\lambda_{assign}$, $\lambda_{cluster}$, $\lambda_{peak}$, and
@@ -105,9 +105,9 @@ in the objective and penalties.
 
 ## 5. Energy-Cost Term
 
-The simplest QUBO energy-cost term charges the residual grid demand after
-contracted renewable energy is absorbed. Fixed baseline load must be included in
-the hourly demand before this residual is computed.
+The simplest QUBO energy-cost term approximates renewable/grid economic
+dispatch. Fixed baseline load must be included in the hourly demand before this
+energy cost is computed.
 
 $$
 H_{energy}(x)
@@ -136,14 +136,14 @@ This approximation is linear and therefore QUBO-compatible.
 Renewable availability can be incorporated in three increasing levels of
 fidelity:
 
-1. Use an adjusted hourly price $\pi^{eff}_t$ that approximates residual grid
-   cost after expected contracted renewable absorption.
+1. Use an adjusted hourly price $\pi^{eff}_t$ that approximates economic
+   renewable/grid dispatch.
 2. Add auxiliary binary variables for renewable consumption or curtailment and
-   enforce the renewable-first split explicitly.
-3. Compare simplified QUBO schedules against exact MILP renewable-first
+   model the renewable/grid split explicitly.
+3. Compare simplified QUBO schedules against exact MILP economic-dispatch
    accounting in post-processing.
 
-The exact renewable-first split is closest to the MILP but increases variable
+The exact renewable/grid split is closest to the MILP but increases variable
 count and coefficient-scaling risk.
 
 ## 6. Assignment Penalty
@@ -204,9 +204,9 @@ $$
 L_{k,t}(x) \leq P^{cluster}_k
 $$
 
-Peak demand is billed on the maximum facility load, not only on excess above
-contracted power. Inequality constraints are not directly QUBO constraints.
-There are two viable encodings for the hard cluster capacity terms.
+Peak demand is billed on maximum facility load above contracted power.
+Inequality constraints are not directly QUBO constraints. There are two viable
+encodings for the hard cluster capacity and soft peak-excess terms.
 
 ### 8.1 Soft Overload Penalty
 
@@ -234,8 +234,8 @@ H_{contracted}(x)
 \right)^2
 $$
 
-The contracted-power term is a hard operational constraint penalty. Separately,
-the peak-demand objective can use:
+The contracted-power term is a soft economic peak-excess penalty. Separately,
+a smoothing objective can use:
 
 $$
 H_{peak-load}(x)

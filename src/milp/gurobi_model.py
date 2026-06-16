@@ -83,9 +83,9 @@ def build_milp_model(
     """Build the full scheduling MILP and return the model plus helper objects.
 
     The model schedules each job exactly once across clusters and feasible start
-    times, uses contracted renewable generation before grid residual demand,
-    enforces heterogeneous cluster capacities, and minimizes grid residual plus
-    peak-demand costs.
+    times, chooses the lowest-cost feasible renewable/grid split, enforces
+    heterogeneous cluster capacities, and minimizes energy cost plus
+    contracted-power excess charges.
     The companion dictionary exposes the model variables and derived
     expressions used by result-extraction helpers.
     """
@@ -134,10 +134,7 @@ def build_milp_model(
     R = {hour: model.addVar(lb=0.0, name=f"R[{hour}]") for hour in hours}
     Q = {hour: model.addVar(lb=0.0, name=f"Q[{hour}]") for hour in hours}
     P_peak = model.addVar(lb=0.0, name="P_peak")
-    renewable_mode = {
-        hour: model.addVar(vtype=GRB.BINARY, name=f"renewable_mode[{hour}]")
-        for hour in hours
-    }
+    P_peak_excess = model.addVar(lb=0.0, name="P_peak_excess")
 
     model.update()
 
@@ -186,31 +183,16 @@ def build_milp_model(
             name=f"assign_once[{job_id}]",
         )
 
-    max_possible_load = sum(cluster["capacity"] for cluster in cluster_data.values()) + max(baseline_load.values())
-    renewable_big_m = max([max_possible_load, *renewable_available.values()])
-    if renewable_big_m <= 0:
-        renewable_big_m = 1.0
-
     for hour in hours:
-        # 3. Energy-source balance. Contracted renewable is consumed up to
-        # demand; grid energy is the residual after available renewable.
+        # 3. Energy-source balance. Renewable and grid usage are optimized
+        # economically while all demand is served.
         model.addConstr(R[hour] + Q[hour] == total_load[hour], name=f"energy_balance[{hour}]")
 
-        # 4. Renewable-first usage: R[hour] = min(renewable_available, total_load).
+        # 4. Renewable availability limit.
         model.addConstr(R[hour] <= renewable_available[hour], name=f"renewable_available[{hour}]")
-        model.addConstr(R[hour] <= total_load[hour], name=f"renewable_demand_limit[{hour}]")
-        model.addConstr(
-            R[hour] >= renewable_available[hour] - renewable_big_m * renewable_mode[hour],
-            name=f"renewable_available_lower[{hour}]",
-        )
-        model.addConstr(
-            R[hour] >= total_load[hour] - renewable_big_m * (1 - renewable_mode[hour]),
-            name=f"renewable_demand_lower[{hour}]",
-        )
 
         # 5. Peak-load relationship.
         model.addConstr(P_peak >= total_load[hour], name=f"peak_load[{hour}]")
-        model.addConstr(total_load[hour] <= config.contracted_power, name=f"contracted_power_cap[{hour}]")
 
     # 6. Cluster-capacity constraint.
     for cluster in clusters:
@@ -225,19 +207,18 @@ def build_milp_model(
                     name=f"cluster_gpu_capacity[{cluster},{hour}]",
                 )
 
-    renewable_contract_cost = gp.quicksum(
-        config.renewable_price * renewable_available[hour] * config.delta_t for hour in hours
-    )
+    renewable_cost = gp.quicksum(config.renewable_price * R[hour] * config.delta_t for hour in hours)
     grid_cost = gp.quicksum(grid_price[hour] * Q[hour] * config.delta_t for hour in hours)
-    peak_cost = config.peak_price * P_peak
-    model.setObjective(renewable_contract_cost + grid_cost + peak_cost, GRB.MINIMIZE)
+    model.addConstr(P_peak_excess >= P_peak - config.contracted_power, name="peak_excess")
+    peak_cost = config.peak_price * P_peak_excess
+    model.setObjective(renewable_cost + grid_cost + peak_cost, GRB.MINIMIZE)
 
     variables = {
         "x": x,
         "R": R,
         "Q": Q,
         "P_peak": P_peak,
-        "renewable_mode": renewable_mode,
+        "P_peak_excess": P_peak_excess,
         "cluster_load": cluster_load,
         "cluster_gpu_load": cluster_gpu_load,
         "flexible_load": flexible_load,

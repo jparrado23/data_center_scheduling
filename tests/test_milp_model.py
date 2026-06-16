@@ -1,5 +1,6 @@
-import pytest
 from dataclasses import replace
+
+import pytest
 
 gp = pytest.importorskip("gurobipy")
 
@@ -83,8 +84,8 @@ def test_solved_toy_model_reports_baseline_and_curtailment():
     ).all()
 
 
-def test_solved_toy_model_uses_renewable_before_grid_even_with_negative_prices():
-    """The contracted renewable profile is used first, not price-arbitraged away."""
+def test_solved_toy_model_uses_grid_when_it_is_cheaper_than_renewable():
+    """Renewable use is economic, not forced before grid energy."""
 
     jobs_df, hourly_df, clusters_df, config = generate_toy_dataset()
     hourly_df = hourly_df.copy()
@@ -98,9 +99,12 @@ def test_solved_toy_model_uses_renewable_before_grid_even_with_negative_prices()
         pytest.skip(f"Gurobi is installed but not usable in this environment: {exc}")
 
     hourly_results = extract_hourly_results(hourly_df, variables)
-    expected_renewable = hourly_results[["renewable_available", "total_load"]].min(axis=1)
 
-    assert (hourly_results["renewable_consumption"].round(10) == expected_renewable.round(10)).all()
+    assert (hourly_results["renewable_consumption"].round(10) == 0.0).all()
+    assert (
+        hourly_results["grid_consumption"].round(10)
+        == hourly_results["total_load"].round(10)
+    ).all()
 
 
 def test_solved_toy_model_objective_matches_reported_cost_metrics():
@@ -119,19 +123,25 @@ def test_solved_toy_model_objective_matches_reported_cost_metrics():
     metrics = compute_summary_metrics(hourly_results, config)
 
     assert model.ObjVal == pytest.approx(metrics["total_cost"])
-    assert metrics["peak_cost"] == pytest.approx(metrics["peak_load"] * config.peak_price)
+    assert metrics["peak_cost"] == pytest.approx(metrics["peak_over_contracted"] * config.peak_price)
 
 
-def test_model_enforces_contracted_power_as_hard_cap():
-    """A schedule that cannot fit under contracted power is infeasible."""
+def test_model_allows_load_above_contracted_power_with_excess_charge():
+    """Contracted power is a soft economic threshold, not a hard cap."""
 
     jobs_df, hourly_df, clusters_df, config = generate_toy_dataset()
     config = replace(config, contracted_power=0.001)
-    model, _ = build_milp_model(jobs_df, hourly_df, clusters_df, config)
+    model, variables = build_milp_model(jobs_df, hourly_df, clusters_df, config)
     model.Params.OutputFlag = 0
 
     try:
-        with pytest.raises(RuntimeError, match="infeasible"):
-            solve_model(model)
+        solve_model(model)
     except gp.GurobiError as exc:
         pytest.skip(f"Gurobi is installed but not usable in this environment: {exc}")
+
+    hourly_results = extract_hourly_results(hourly_df, variables)
+    metrics = compute_summary_metrics(hourly_results, config)
+
+    assert metrics["peak_load"] > config.contracted_power
+    assert metrics["peak_over_contracted"] > 0
+    assert metrics["peak_cost"] == pytest.approx(metrics["peak_over_contracted"] * config.peak_price)

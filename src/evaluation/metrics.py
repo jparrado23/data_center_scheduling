@@ -14,26 +14,25 @@ def compute_cost_breakdown(hourly_results: pd.DataFrame, config: ModelConfig) ->
     tariff parameters stored in `config`.
     """
 
-    renewable_contract_cost = (
-        hourly_results["renewable_available"] * config.renewable_price * config.delta_t
+    renewable_cost = (
+        hourly_results["renewable_consumption"] * config.renewable_price * config.delta_t
     ).sum()
     grid_cost = (
         hourly_results["grid_consumption"] * hourly_results["grid_price"] * config.delta_t
     ).sum()
     peak_load = hourly_results["total_load"].max()
     peak_over_contracted = max(0.0, peak_load - config.contracted_power)
-    peak_cost = peak_load * config.peak_price
+    peak_cost = peak_over_contracted * config.peak_price
 
     return {
-        "renewable_contract_cost": float(renewable_contract_cost),
-        "renewable_cost": float(renewable_contract_cost),
+        "renewable_cost": float(renewable_cost),
         "grid_cost": float(grid_cost),
-        "energy_cost": float(renewable_contract_cost + grid_cost),
+        "energy_cost": float(renewable_cost + grid_cost),
         "peak_load": float(peak_load),
         "contracted_power": float(config.contracted_power),
         "peak_over_contracted": float(peak_over_contracted),
         "peak_cost": float(peak_cost),
-        "total_cost": float(renewable_contract_cost + grid_cost + peak_cost),
+        "total_cost": float(renewable_cost + grid_cost + peak_cost),
     }
 
 
