@@ -79,6 +79,7 @@ def build_milp_model(
     clusters_df: pd.DataFrame,
     config: ModelConfig,
     model_name: str = "energy_ai_datacenter_milp",
+    enforce_gpu_constraints: bool = True,
 ) -> tuple[gp.Model, dict[str, Any]]:
     """Build the full scheduling MILP and return the model plus helper objects.
 
@@ -112,8 +113,10 @@ def build_milp_model(
     jobs_without_compatible_cluster = [job_id for job_id, allowed_clusters in compatible_clusters.items() if not allowed_clusters]
     if jobs_without_compatible_cluster:
         raise ValueError(f"jobs have no compatible cluster: {jobs_without_compatible_cluster}")
-    enforce_gpu_capacity = all("gpus" in jobs[job_id] for job_id in job_ids) and all(
-        "gpu_capacity" in cluster_data[cluster] for cluster in clusters
+    enforce_gpu_capacity = (
+        enforce_gpu_constraints
+        and all("gpus" in jobs[job_id] for job_id in job_ids)
+        and all("gpu_capacity" in cluster_data[cluster] for cluster in clusters)
     )
 
     renewable_available = dict(zip(hours, hourly_df["renewable_available"].astype(float), strict=True))
@@ -230,6 +233,7 @@ def build_milp_model(
         "compatible_clusters": compatible_clusters,
         "jobs": jobs,
         "cluster_data": cluster_data,
+        "enforce_gpu_capacity": enforce_gpu_capacity,
         "hours": hours,
         "clusters": clusters,
     }

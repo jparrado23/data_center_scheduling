@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--peak-price", type=float, default=1000.0)
     parser.add_argument("--contracted-power", type=float, default=0.222)
     parser.add_argument("--price-column", choices=["first", "last", "average"], default="last")
+    parser.add_argument(
+        "--gpu-constraints",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable cluster GPU capacity constraints.",
+    )
     parser.add_argument("--time-limit", type=float, default=60.0)
     parser.add_argument("--mip-gap", type=float)
     parser.add_argument("--quiet", action="store_true", help="Disable Gurobi solver log output.")
@@ -63,7 +69,13 @@ def main() -> None:
         price_column=args.price_column,
     )
 
-    model, variables = build_milp_model(jobs_df, hourly_df, clusters_df, config)
+    model, variables = build_milp_model(
+        jobs_df,
+        hourly_df,
+        clusters_df,
+        config,
+        enforce_gpu_constraints=args.gpu_constraints,
+    )
     model.Params.OutputFlag = 0 if args.quiet else 1
     solve_model(model, time_limit=args.time_limit, mip_gap=args.mip_gap)
 

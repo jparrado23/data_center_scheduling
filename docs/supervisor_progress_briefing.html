@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Master Thesis Progress Briefing</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #52606d;
+      --line: #d9e2ec;
+      --soft: #f5f7fa;
+      --blue: #1f6f8b;
+      --green: #2f7d4f;
+      --orange: #a05a00;
+      --red: #9b2c2c;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background: white;
+      line-height: 1.5;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 28px 72px;
+    }
+    .cover {
+      border-bottom: 2px solid var(--line);
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 36px;
+      line-height: 1.12;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 18px;
+      max-width: 900px;
+    }
+    .slide {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 24px 26px;
+      margin: 22px 0;
+      page-break-inside: avoid;
+      background: #fff;
+    }
+    .slide h2 {
+      margin: 0 0 14px;
+      font-size: 25px;
+      color: var(--blue);
+    }
+    h3 {
+      margin: 18px 0 8px;
+      font-size: 17px;
+    }
+    ul, ol {
+      margin: 8px 0 0 22px;
+      padding: 0;
+    }
+    li {
+      margin: 6px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: var(--soft);
+    }
+    .box strong {
+      color: var(--blue);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #eef3f8;
+    }
+    code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      background: #eef3f8;
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+    .equation {
+      background: #fbfcfd;
+      border-left: 4px solid var(--blue);
+      padding: 12px 14px;
+      margin: 12px 0;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .note {
+      color: var(--muted);
+      border-top: 1px dashed var(--line);
+      margin-top: 16px;
+      padding-top: 10px;
+      font-size: 14px;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin-left: 6px;
+      background: #e7f5ec;
+      color: var(--green);
+    }
+    .planned {
+      background: #fff7e6;
+      color: var(--orange);
+    }
+    .risk {
+      background: #ffe8e8;
+      color: var(--red);
+    }
+    @media (max-width: 800px) {
+      .grid, .three {
+        grid-template-columns: 1fr;
+      }
+      main {
+        padding: 24px 16px 48px;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="cover">
+    <h1>Energy-Aware Scheduling for AI Data Centers</h1>
+    <p class="subtitle">Progress briefing for the master thesis supervisor: problem definition, current Layer 0 MILP model, static and dynamic research directions, and roadmap toward QUBO/QAOA and hybrid methods.</p>
+  </section>
+
+  <section class="slide">
+    <h2>1. Thesis Motivation</h2>
+    <ul>
+      <li>AI data centers run heterogeneous workloads such as training, fine-tuning, preprocessing, and inference.</li>
+      <li>Some workloads are flexible: they can be shifted within a time window without changing the final service.</li>
+      <li>Energy cost is time-dependent because grid prices, renewable availability, and peak demand charges vary across the day.</li>
+      <li>The scheduling question is: when and where should flexible jobs run so compute demand is served at lower energy cost and lower grid stress?</li>
+    </ul>
+    <div class="note">Speaker note: Position the thesis as optimization for AI infrastructure under energy constraints, not only as a quantum computing exercise.</div>
+  </section>
+
+  <section class="slide">
+    <h2>2. Problem Definition</h2>
+    <div class="grid">
+      <div class="box">
+        <strong>Inputs</strong>
+        <ul>
+          <li>Set of jobs with duration, power, start window, workload type, GPU demand, and cluster compatibility.</li>
+          <li>Data-center clusters with power and GPU capacities.</li>
+          <li>Hourly renewable availability and grid electricity price.</li>
+          <li>Baseline non-flexible load, such as inference.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <strong>Outputs</strong>
+        <ul>
+          <li>Start time for each flexible job.</li>
+          <li>Cluster assignment for each job.</li>
+          <li>Hourly renewable and grid consumption.</li>
+          <li>Peak load and peak charge above contracted power.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="equation">Goal: minimize renewable cost + grid cost + peak-excess cost</div>
+  </section>
+
+  <section class="slide">
+    <h2>3. Energy Considerations</h2>
+    <ul>
+      <li><strong>Renewable vs grid:</strong> the model can choose renewable or grid energy economically, subject to renewable availability.</li>
+      <li><strong>Grid prices:</strong> OMIE prices define hourly grid energy cost for representative days.</li>
+      <li><strong>Renewable price:</strong> a fixed renewable/PPA-like price parameter is used for renewable energy consumed.</li>
+      <li><strong>Peak penalty:</strong> contracted power is a soft billing threshold; exceeding it is allowed but charged.</li>
+      <li><strong>Baseline load:</strong> fixed inference or facility load is added to scheduled flexible workloads.</li>
+    </ul>
+    <div class="equation">renewable_t + grid_t = total_load_t
+renewable_t <= renewable_available_t
+peak_cost = peak_price * max(0, max_t(total_load_t) - contracted_power)</div>
+  </section>
+
+  <section class="slide">
+    <h2>4. Two Scheduling Approaches</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Approach</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Research Role</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Static scheduling</td>
+          <td>All jobs and energy inputs are known at the start of the day. A complete 24-hour schedule is optimized once.</td>
+          <td><span class="tag">Implemented Layer 0</span></td>
+          <td>Baseline for MILP, QUBO, and quantum-inspired comparisons.</td>
+        </tr>
+        <tr>
+          <td>Dynamic scheduling</td>
+          <td>Jobs arrive or change during the day. The scheduler must update decisions online or in rolling horizons.</td>
+          <td><span class="tag planned">Planned</span></td>
+          <td>Future extension closer to real operations; candidate for hybrid and heuristic approaches.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">Speaker note: Static first gives a controlled mathematical benchmark. Dynamic scheduling can be introduced after the baseline is validated.</div>
+  </section>
+
+  <section class="slide">
+    <h2>5. Layered Complexity Roadmap</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Layer</th>
+          <th>Model Feature</th>
+          <th>Purpose</th>
+          <th>Current Decision</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Layer 0</td>
+          <td>Base scheduling with energy prices, renewable/grid split, peak penalty, cluster compatibility and capacities.</td>
+          <td>Clean classical baseline.</td>
+          <td><span class="tag">Current focus</span></td>
+        </tr>
+        <tr>
+          <td>Layer 1</td>
+          <td>Average vs peak power per job, and potentially PUE/facility-load adjustment.</td>
+          <td>More realistic power and energy accounting.</td>
+          <td><span class="tag planned">Next branch</span></td>
+        </tr>
+        <tr>
+          <td>Layer 2</td>
+          <td>Battery or storage decisions: charge, discharge, state of charge.</td>
+          <td>Study renewable shifting and grid peak reduction.</td>
+          <td><span class="tag planned">Later</span></td>
+        </tr>
+        <tr>
+          <td>Layer 3</td>
+          <td>Priority, soft deadlines, and weighted tardiness.</td>
+          <td>Reflect business importance of different workloads.</td>
+          <td><span class="tag planned">Later</span></td>
+        </tr>
+        <tr>
+          <td>Layer 4</td>
+          <td>Dynamic or rolling-horizon scheduling.</td>
+          <td>Move toward online operational scheduling.</td>
+          <td><span class="tag planned">Future research</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="slide">
+    <h2>6. Current Implementation Progress</h2>
+    <div class="grid">
+      <div class="box">
+        <strong>Implemented</strong>
+        <ul>
+          <li>Repo-local job, solar, and OMIE price inputs.</li>
+          <li>Gurobi MILP model for static Layer 0 scheduling.</li>
+          <li>Notebook and CLI execution paths.</li>
+          <li>Metrics for energy cost, grid cost, renewable cost, peak load, and curtailment.</li>
+          <li>Optional GPU capacity constraints.</li>
+          <li>Unit tests for importers, model behavior, metrics, and scenario builder.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <strong>Current Scope Boundaries</strong>
+        <ul>
+          <li>No battery yet.</li>
+          <li>No PUE layer yet.</li>
+          <li>No priority/tardiness yet.</li>
+          <li>No dynamic scheduling yet.</li>
+          <li>No QUBO/QAOA implementation yet.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note">Speaker note: Emphasize that we intentionally stabilized Layer 0 before adding complexity.</div>
+  </section>
+
+  <section class="slide">
+    <h2>7. Why We Use Gurobi For The Classical Baseline</h2>
+    <ul>
+      <li>The current repository uses Gurobi for the MILP, not CBC.</li>
+      <li>CBC notebooks from the collaborator were used to compare modeling ideas, not to replace the solver.</li>
+      <li>Gurobi gives a stronger exact optimization baseline for proving optimality and diagnosing infeasibility.</li>
+      <li>This is important because the thesis later compares classical exact optimization against QUBO/QAOA and hybrid methods.</li>
+    </ul>
+    <div class="equation">Classical baseline = Gurobi MILP
+Collaborator notebooks = modeling reference and layer roadmap</div>
+  </section>
+
+  <section class="slide">
+    <h2>8. Static Layer 0 Mathematical Model</h2>
+    <h3>Sets</h3>
+    <ul>
+      <li><code>I</code>: flexible jobs.</li>
+      <li><code>K</code>: compute clusters.</li>
+      <li><code>T</code>: hourly time slots.</li>
+      <li><code>S_i</code>: feasible start times for job <code>i</code>.</li>
+    </ul>
+    <h3>Main Binary Decision Variable</h3>
+    <div class="equation">x[i,k,s] = 1 if job i starts on cluster k at hour s; 0 otherwise</div>
+    <h3>Continuous Variables</h3>
+    <ul>
+      <li><code>R_t</code>: renewable energy consumed in hour <code>t</code>.</li>
+      <li><code>Q_t</code>: grid energy consumed in hour <code>t</code>.</li>
+      <li><code>P_peak</code>: maximum total load.</li>
+      <li><code>P_peak_excess</code>: peak load above contracted power.</li>
+    </ul>
+  </section>
+
+  <section class="slide">
+    <h2>9. Layer 0 Constraints</h2>
+    <div class="equation">1. Assignment:
+sum_{k,s} x[i,k,s] = 1 for every job i</div>
+    <div class="equation">2. Compatibility:
+x[i,k,s] exists only if job i is compatible with cluster k</div>
+    <div class="equation">3. Non-preemptive execution:
+active load is counted for every hour from start s to s + duration_i - 1</div>
+    <div class="equation">4. Cluster power capacity:
+cluster_load[k,t] <= cluster_capacity[k]</div>
+    <div class="equation">5. Optional GPU capacity:
+cluster_gpu_load[k,t] <= gpu_capacity[k]</div>
+    <div class="equation">6. Energy balance:
+R_t + Q_t = baseline_t + flexible_load_t</div>
+    <div class="equation">7. Renewable availability:
+R_t <= renewable_available_t</div>
+    <div class="equation">8. Peak excess:
+P_peak >= total_load_t
+P_peak_excess >= P_peak - contracted_power</div>
+  </section>
+
+  <section class="slide">
+    <h2>10. Layer 0 Objective Function</h2>
+    <p>The Layer 0 model minimizes total operating cost:</p>
+    <div class="equation">minimize:
+sum_t renewable_price * R_t
++ sum_t grid_price_t * Q_t
++ peak_price * P_peak_excess</div>
+    <ul>
+      <li>Renewable and grid consumption are chosen economically.</li>
+      <li>If grid is cheaper than renewable in an hour, the model can choose grid.</li>
+      <li>Contracted power is not a hard cap; exceeding it is allowed but charged.</li>
+      <li>GPU constraints can be enabled or disabled depending on the experiment.</li>
+    </ul>
+  </section>
+
+  <section class="slide">
+    <h2>11. Current Data And Scenarios</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Axis</th>
+          <th>Scenarios</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Workload pressure</td>
+          <td><code>jobs_light</code>, <code>jobs_tense</code>, <code>jobs_limit</code></td>
+          <td>Represent increasing scheduling difficulty and tighter feasible windows.</td>
+        </tr>
+        <tr>
+          <td>Energy day</td>
+          <td><code>clear_sky</code>, <code>base</code>, <code>overcast</code></td>
+          <td>Compare renewable-rich, representative, and renewable-poor days.</td>
+        </tr>
+        <tr>
+          <td>Solver settings</td>
+          <td>GPU constraints on/off; renewable price; peak price; contracted power.</td>
+          <td>Analyze sensitivity of the schedule and cost structure.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="slide">
+    <h2>12. Classical Execution Plan</h2>
+    <ol>
+      <li>Use Gurobi MILP to solve Layer 0 exactly for the representative instances.</li>
+      <li>Scale workload size, time granularity, and constraints to identify when exact MILP becomes difficult.</li>
+      <li>Record objective value, runtime, optimality gap, infeasibility cases, and schedule quality.</li>
+      <li>Use this as the classical benchmark for quantum and hybrid experiments.</li>
+    </ol>
+    <div class="note">Recommended wording: the goal is not to assume MILP fails, but to experimentally identify scaling limits and establish a rigorous baseline.</div>
+  </section>
+
+  <section class="slide">
+    <h2>13. Quantum Roadmap: QUBO And QAOA</h2>
+    <ul>
+      <li>Translate a simplified version of Layer 0 into a QUBO.</li>
+      <li>Start with small instances where the number of binary variables is manageable.</li>
+      <li>Compare decoded QUBO/QAOA schedules against the Gurobi MILP optimum.</li>
+      <li>Evaluate feasibility violations, objective quality, and runtime behavior.</li>
+      <li>Use QAOA as proof-of-concept for small instances, not as an immediate replacement for Gurobi.</li>
+    </ul>
+    <div class="equation">Research question:
+Can QUBO/QAOA reproduce good feasible schedules on small energy-aware scheduling instances?</div>
+  </section>
+
+  <section class="slide">
+    <h2>14. Hybrid Research Direction</h2>
+    <ul>
+      <li>Use classical optimization for parts of the problem that are continuous or constraint-heavy.</li>
+      <li>Use QUBO/quantum-inspired methods for selected binary assignment or timing subproblems.</li>
+      <li>Investigate decomposition: clusters, time windows, workload groups, or rolling horizons.</li>
+      <li>Evaluate whether hybrid methods can produce good feasible schedules faster or for larger instances.</li>
+    </ul>
+    <div class="note">Speaker note: Position hybrid methods as the research-oriented phase after the baseline and small QUBO experiments are credible.</div>
+  </section>
+
+  <section class="slide">
+    <h2>15. Proposed Thesis Workflow</h2>
+    <div class="grid three">
+      <div class="box">
+        <strong>Phase 1: Classical Baseline</strong>
+        <ul>
+          <li>Layer 0 Gurobi MILP.</li>
+          <li>Scenario matrix.</li>
+          <li>Scaling and runtime study.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <strong>Phase 2: Quantum Proof Of Concept</strong>
+        <ul>
+          <li>QUBO formulation.</li>
+          <li>Small instances.</li>
+          <li>QAOA comparison against MILP optimum.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <strong>Phase 3: Hybrid Research</strong>
+        <ul>
+          <li>Problem decomposition.</li>
+          <li>Hybrid classical-quantum workflow.</li>
+          <li>Quality, feasibility, and scalability comparison.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <h2>16. Immediate Next Steps</h2>
+    <ol>
+      <li>Finalize and review the aligned Layer 0 model.</li>
+      <li>Run the full workload-by-energy scenario matrix with Gurobi.</li>
+      <li>Add support for <code>e_kw_avg</code> and <code>e_kw_peak</code> as the next modeling improvement.</li>
+      <li>Define the smallest QUBO-compatible test instances.</li>
+      <li>Prepare metrics for comparison: cost, feasibility, peak excess, renewable share, runtime, and optimality gap.</li>
+      <li>Only after this, add PUE, battery, priority, and dynamic scheduling layers.</li>
+    </ol>
+  </section>
+
+  <section class="slide">
+    <h2>17. Key Points To Ask The Supervisor</h2>
+    <ul>
+      <li>Is the static-first, dynamic-later structure appropriate for the thesis scope?</li>
+      <li>Should contracted power be treated as a soft billing threshold, as currently modeled?</li>
+      <li>Should renewable energy be economically dispatched against grid price?</li>
+      <li>Is the roadmap from MILP baseline to QUBO/QAOA to hybrid methods academically coherent?</li>
+      <li>Which future layer should be prioritized: average/peak power, PUE, battery, priority, or dynamic scheduling?</li>
+    </ul>
+  </section>
+
+  <section class="slide">
+    <h2>18. Closing Message</h2>
+    <p>The project has moved from general problem framing to an executable Layer 0 Gurobi MILP baseline with real job, solar, and price inputs. The next milestone is to use this baseline to quantify classical performance and prepare the smallest valid QUBO/QAOA experiments.</p>
+    <div class="equation">Current thesis position:
+Build a rigorous classical baseline first.
+Use it to define, test, and evaluate quantum and hybrid alternatives.</div>
+  </section>
+</main>
+</body>
+</html>

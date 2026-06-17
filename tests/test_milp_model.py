@@ -145,3 +145,35 @@ def test_model_allows_load_above_contracted_power_with_excess_charge():
     assert metrics["peak_load"] > config.contracted_power
     assert metrics["peak_over_contracted"] > 0
     assert metrics["peak_cost"] == pytest.approx(metrics["peak_over_contracted"] * config.peak_price)
+
+
+def test_model_can_disable_gpu_capacity_constraints():
+    """GPU capacity constraints are optional for the simplest MVP runs."""
+
+    jobs_df, hourly_df, clusters_df, config = generate_toy_dataset()
+    jobs_df = jobs_df.copy()
+    clusters_df = clusters_df.copy()
+    jobs_df["gpus"] = [1, 4, 8, 2]
+    clusters_df["gpu_capacity"] = [16, 120, 160, 32]
+
+    model_with_gpu, variables_with_gpu = build_milp_model(
+        jobs_df,
+        hourly_df,
+        clusters_df,
+        config,
+        enforce_gpu_constraints=True,
+    )
+    model_without_gpu, variables_without_gpu = build_milp_model(
+        jobs_df,
+        hourly_df,
+        clusters_df,
+        config,
+        enforce_gpu_constraints=False,
+    )
+    model_with_gpu.update()
+    model_without_gpu.update()
+
+    assert variables_with_gpu["enforce_gpu_capacity"] is True
+    assert variables_without_gpu["enforce_gpu_capacity"] is False
+    assert any(constr.ConstrName.startswith("cluster_gpu_capacity") for constr in model_with_gpu.getConstrs())
+    assert not any(constr.ConstrName.startswith("cluster_gpu_capacity") for constr in model_without_gpu.getConstrs())

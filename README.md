@@ -150,6 +150,17 @@ It writes `schedule.csv`, `hourly_results.csv`,
 Available workload cases are `light`, `tense`, and `limit`. Available energy
 scenarios are `clear_sky`, `overcast`, and `base`.
 
+GPU capacity constraints are enabled by default when job and cluster GPU
+columns are available. For the simplest MVP run without GPU capacity limits,
+use:
+
+```bash
+conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
+  --workload tense \
+  --scenario base \
+  --no-gpu-constraints
+```
+
 Run the toy MILP notebook with:
 
 ```bash
