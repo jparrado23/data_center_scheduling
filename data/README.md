@@ -27,6 +27,18 @@ conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
   --scenario base
 ```
 
+Battery storage is off by default. To enable it from the terminal, pass
+`--battery` plus positive power and energy capacities:
+
+```bash
+conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
+  --workload tense \
+  --scenario base \
+  --battery \
+  --battery-power-capacity 0.05 \
+  --battery-energy-capacity 0.10
+```
+
 Available workloads are `light`, `tense`, and `limit`. Available energy
 scenarios are:
 
@@ -84,6 +96,15 @@ Expected `jobs.csv` schema:
 job_id,category,duration,power,earliest_start,latest_start
 ```
 
+Resource-profile jobs may also include:
+
+```text
+workload_family,gpu_type_required,gpu_count_required,cpu_required,memory_required_gb
+```
+
+`power` is the canonical model-ready IT power in MW. `power_kw` may be kept for
+audit, but the MILP consumes `power`.
+
 Shared job-instance CSV files can be converted or normalized with:
 
 ```bash
@@ -103,8 +124,11 @@ The importer expects:
   and D. Cluster A remains reserved for inference.
 
 The normalized output keeps `gpus`, `power_kw`, `e_kw`, and the `alpha_*`
-columns alongside the model-required columns so GPU constraints and
-job-specific compatibility can be used by solvers that support them.
+columns alongside the model-required columns. It also adds
+`gpu_count_required`, `cpu_required`, and `memory_required_gb` so the MILP can
+enforce aggregate resource constraints. Current shared job files do not contain
+GPU type requirements, so `gpu_type_required` is left empty unless supplied by a
+trace-derived importer.
 
 Expected `hourly_inputs.csv` schema:
 
@@ -112,9 +136,9 @@ Expected `hourly_inputs.csv` schema:
 hour,renewable_available,grid_price
 ```
 
-`baseline_load` is optional. When present, it represents fixed non-shiftable
-facility load, such as inference in Zone A, and is added to optimized flexible
-load before renewable/grid split and peak evaluation.
+`baseline_load` is optional. When present, it represents fixed non-shiftable IT
+load, such as inference in Zone A. The model adds it to optimized flexible IT
+load, then applies PUE before renewable/grid/battery balancing.
 
 ```text
 hour,renewable_available,grid_price,baseline_load
@@ -198,13 +222,24 @@ python scripts/import_solar_profile.py "/path/to/Timeseries_...csv" \
   --output data/processed/hourly_inputs.csv
 ```
 
-Expected `clusters.csv` schema:
+Expected `clusters.csv` legacy schema:
 
 ```text
 cluster_id,capacity_kw,capacity,compatible_categories
 ```
 
 `capacity_kw` preserves the source value. `capacity` is the model-ready value in MW.
+
+Resource-profile compute partitions may also include:
+
+```text
+cluster_role,power_capacity_kw,gpu_type,gpu_count,gpu_capacity,cpu_capacity,memory_capacity_gb,reserved_for_online_inference
+```
+
+`gpu_count` and `gpu_capacity` are currently treated as equivalent GPU-capacity
+columns. If jobs request GPU/CPU/memory resources, all compute partitions must
+provide the corresponding positive capacity metadata; otherwise the model fails
+fast rather than silently disabling the resource constraint.
 
 Expected `job_types.csv` schema:
 
@@ -221,9 +256,18 @@ Expected `config.json` schema:
   "contracted_power": 0.222,
   "renewable_price": 40,
   "peak_price": 1000,
-  "delta_t": 1
+  "delta_t": 1,
+  "pue": 1.0,
+  "battery_power_capacity": 0.0,
+  "battery_energy_capacity": 0.0,
+  "battery_initial_soc": 0.0,
+  "battery_final_soc": null,
+  "battery_charge_efficiency": 0.95,
+  "battery_discharge_efficiency": 0.95
 }
 ```
 
-`contracted_power` is a soft peak-charge threshold. The model may exceed it,
-but pays `peak_price` on the maximum load above the contracted threshold.
+`contracted_power` is a soft grid-import peak-charge threshold. The model may
+exceed it, but pays `peak_price` on the maximum grid import above the contracted
+threshold. Battery variables are enabled only when both battery power and energy
+capacities are positive.

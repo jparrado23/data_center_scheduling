@@ -10,14 +10,15 @@ stress are reduced.
 
 This project builds an optimization framework for that problem. The current
 focus is a mixed-integer linear programming (MILP) model that schedules flexible
-AI workloads over a 24-hour horizon across heterogeneous data-center clusters.
-The model uses Gurobi to choose job start times, cluster assignments, renewable
-energy use, grid energy use, and peak-load behavior.
+AI workloads over a 24-hour horizon across heterogeneous compute partitions.
+The model uses Gurobi to choose job start times, partition assignments,
+renewable energy use, grid energy use, optional battery operation, and
+grid-import peak behavior.
 
 The goal is to create a reliable baseline that can answer questions such as:
 
 - Which jobs should be shifted to cheaper or cleaner hours?
-- Which cluster should run each workload type?
+- Which compute partition should run each workload?
 - How much grid energy is needed after using available renewable energy?
 - What is the tradeoff between energy cost, peak demand, and scheduling
   flexibility?
@@ -31,38 +32,42 @@ method comparison, but that work has not started yet.
 
 The system receives a set of AI jobs. Each job has:
 
-- a workload category, such as training, inference, preprocessing, or
-  fine-tuning;
+- a workload family, such as training, inference, preprocessing, or
+  fine-tuning, used for interpretation;
 - a duration;
-- a power requirement;
-- an earliest and latest allowed start time.
+- an IT power requirement in MW;
+- an earliest and latest allowed start time;
+- resource requirements such as GPU type, GPU count, CPU, and memory.
 
-The data center contains multiple clusters. Each cluster has:
+The data center contains multiple compute partitions. Each partition has:
 
-- a maximum power capacity;
-- a set of compatible job categories;
-- its own role in the scheduling decision.
+- an IT power capacity;
+- GPU type and GPU capacity;
+- aggregate CPU and memory capacity;
+- an operational role in the scheduling decision.
 
 For every hour in the planning horizon, the model also receives:
 
 - available renewable energy;
-- optional fixed baseline load;
+- optional fixed IT baseline load;
 - grid energy price;
-- contracted power as a soft peak-charge threshold;
-- peak demand charges on load above contracted power;
+- contracted power as a soft grid-import peak-charge threshold;
+- PUE, which scales IT load into facility load;
 - renewable and peak-demand pricing parameters.
 
-The scheduler must assign every flexible job to exactly one compatible cluster
+The scheduler must assign every flexible job to exactly one compatible partition
 and one feasible start time. Once a job starts, it runs continuously until its
-duration is complete. Across the full schedule, cluster capacities must not be
-violated. Peak demand is measured from the maximum total facility load.
+duration is complete. Across the full schedule, partition power, GPU, CPU, and
+memory capacities must not be violated. Peak demand charges are measured from
+maximum grid import above contracted power.
 
 ## How The Project Addresses It
 
 The current implementation formulates the scheduling task as a MILP. Binary
 decision variables select flexible job start times and cluster assignments.
 Continuous variables track renewable consumption, grid consumption,
-curtailment, peak load, and peak load above contracted power. The objective
+curtailment, optional battery charge/discharge/SOC, grid-import peak, and peak
+import above contracted power. The objective
 minimizes total operator cost, combining:
 
 - grid energy cost;
@@ -79,14 +84,16 @@ remain schedulable.
 The implemented model includes:
 
 - non-preemptive job scheduling;
-- heterogeneous cluster capacities;
-- job-category compatibility constraints;
-- per-cluster power limits;
-- contracted power as a soft peak-charge threshold;
-- peak demand charges on load above contracted power;
+- heterogeneous compute-partition capacities;
+- resource-profile compatibility using GPU type, GPU count, CPU, and memory;
+- per-partition power, GPU, CPU, and memory limits;
+- PUE scaling from IT load to facility load;
+- optional battery storage with charge/discharge/SOC constraints;
+- contracted power as a soft grid-import peak-charge threshold;
+- peak demand charges on grid import above contracted power;
 - economic renewable/grid dispatch based on input prices;
 - renewable curtailment reporting;
-- peak-load minimization through the cost function;
+- grid-import peak minimization through the cost function;
 - result extraction, metrics, and plotting utilities.
 
 ## Repository Layout
@@ -161,6 +168,20 @@ conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
   --no-gpu-constraints
 ```
 
+Battery storage is disabled by default. Enable it explicitly with:
+
+```bash
+conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
+  --workload tense \
+  --scenario base \
+  --battery \
+  --battery-power-capacity 0.05 \
+  --battery-energy-capacity 0.10 \
+  --battery-initial-soc 0.00
+```
+
+Use `--pue` to scale IT load into facility load, for example `--pue 1.2`.
+
 Run the toy MILP notebook with:
 
 ```bash
@@ -175,11 +196,14 @@ The synthetic input tables use the following columns:
 
 - `jobs_df`: `job_id`, `category`, `duration`, `power`, `earliest_start`,
   `latest_start`
-- `clusters_df`: `cluster_id`, `capacity`, `compatible_categories`
+- `clusters_df`: `cluster_id`, `capacity`, `compatible_categories`, plus
+  optional resource columns such as `cluster_role`, `gpu_type`, `gpu_count`,
+  `cpu_capacity`, and `memory_capacity_gb`
 - `hourly_df`: `hour`, `renewable_available`, `grid_price`, optional
   `baseline_load`
 - `config`: `contracted_power` soft peak-charge threshold, `renewable_price`,
-  `peak_price` excess-demand rate, `delta_t`
+  `peak_price` excess-demand rate, `delta_t`, `pue`, and optional battery
+  capacity/efficiency settings
 
 To solve a processed instance, use:
 
@@ -215,6 +239,8 @@ Implemented:
 - synthetic data generation;
 - processed-instance generation;
 - MILP model construction;
+- resource-profile compatibility and aggregate capacity constraints;
+- PUE and optional battery modeling;
 - Gurobi solve wrapper;
 - schedule extraction;
 - load and cost metrics;

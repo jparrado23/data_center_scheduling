@@ -7,6 +7,12 @@ import pandas as pd
 from src.config import ModelConfig
 
 
+def _sum_column_mwh(hourly_results: pd.DataFrame, column: str, config: ModelConfig) -> float:
+    if column not in hourly_results.columns:
+        return 0.0
+    return float((hourly_results[column] * config.delta_t).sum())
+
+
 def compute_cost_breakdown(hourly_results: pd.DataFrame, config: ModelConfig) -> dict[str, float]:
     """Compute the monetary objective components from hourly results.
 
@@ -21,7 +27,8 @@ def compute_cost_breakdown(hourly_results: pd.DataFrame, config: ModelConfig) ->
         hourly_results["grid_consumption"] * hourly_results["grid_price"] * config.delta_t
     ).sum()
     peak_load = hourly_results["total_load"].max()
-    peak_over_contracted = max(0.0, peak_load - config.contracted_power)
+    peak_grid_import = hourly_results["grid_consumption"].max()
+    peak_over_contracted = max(0.0, peak_grid_import - config.contracted_power)
     peak_cost = peak_over_contracted * config.peak_price
 
     return {
@@ -29,6 +36,7 @@ def compute_cost_breakdown(hourly_results: pd.DataFrame, config: ModelConfig) ->
         "grid_cost": float(grid_cost),
         "energy_cost": float(renewable_cost + grid_cost),
         "peak_load": float(peak_load),
+        "peak_grid_import": float(peak_grid_import),
         "contracted_power": float(config.contracted_power),
         "peak_over_contracted": float(peak_over_contracted),
         "peak_cost": float(peak_cost),
@@ -47,11 +55,19 @@ def compute_summary_metrics(hourly_results: pd.DataFrame, config: ModelConfig) -
     cost_breakdown = compute_cost_breakdown(hourly_results, config)
     return {
         **cost_breakdown,
-        "baseline_energy_mwh": float((hourly_results.get("baseline_load", 0.0) * config.delta_t).sum()),
-        "flexible_energy_mwh": float((hourly_results.get("flexible_load", hourly_results["total_load"]) * config.delta_t).sum()),
+        "pue": float(config.pue),
+        "baseline_energy_mwh": _sum_column_mwh(hourly_results, "baseline_load", config),
+        "flexible_energy_mwh": _sum_column_mwh(hourly_results, "flexible_load", config)
+        if "flexible_load" in hourly_results.columns
+        else _sum_column_mwh(hourly_results, "total_load", config),
+        "it_energy_mwh": _sum_column_mwh(hourly_results, "it_load", config)
+        if "it_load" in hourly_results.columns
+        else _sum_column_mwh(hourly_results, "total_load", config),
         "total_energy_mwh": float((hourly_results["total_load"] * config.delta_t).sum()),
         "renewable_available_mwh": float((hourly_results["renewable_available"] * config.delta_t).sum()),
         "renewable_energy_mwh": float((hourly_results["renewable_consumption"] * config.delta_t).sum()),
-        "renewable_curtailment_mwh": float((hourly_results.get("renewable_curtailment", 0.0) * config.delta_t).sum()),
+        "renewable_curtailment_mwh": _sum_column_mwh(hourly_results, "renewable_curtailment", config),
         "grid_energy_mwh": float((hourly_results["grid_consumption"] * config.delta_t).sum()),
+        "battery_charge_mwh": _sum_column_mwh(hourly_results, "battery_charge", config),
+        "battery_discharge_mwh": _sum_column_mwh(hourly_results, "battery_discharge", config),
     }

@@ -39,6 +39,8 @@ class SyntheticInstanceConfig:
     min_gpu_demand: int = 1
     max_gpu_demand: int = 4
     power_per_gpu_kw: float = 0.35
+    cpu_per_gpu: float = 8.0
+    memory_gb_per_gpu: float = 48.0
     power_jitter_fraction: float = 0.20
     min_window_slack: int = 2
     max_window_slack: int = 8
@@ -48,6 +50,7 @@ class SyntheticInstanceConfig:
     peak_price: float = 1000.0
     contracted_power: float = 0.222
     baseline_load_mw: float = 0.010
+    pue: float = 1.2
 
     def __post_init__(self) -> None:
         if self.num_jobs <= 0:
@@ -62,6 +65,10 @@ class SyntheticInstanceConfig:
             raise ValueError("GPU-demand bounds must be positive and ordered")
         if self.power_per_gpu_kw <= 0:
             raise ValueError("power_per_gpu_kw must be positive")
+        if self.cpu_per_gpu <= 0:
+            raise ValueError("cpu_per_gpu must be positive")
+        if self.memory_gb_per_gpu <= 0:
+            raise ValueError("memory_gb_per_gpu must be positive")
         if not 0 <= self.power_jitter_fraction <= 1:
             raise ValueError("power_jitter_fraction must be between 0 and 1")
         if self.min_window_slack < 0 or self.max_window_slack < self.min_window_slack:
@@ -101,9 +108,13 @@ class SyntheticInstance:
 def _cluster_lookup(clusters_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
     clusters: dict[str, dict[str, Any]] = {}
     for row in clusters_df.itertuples(index=False):
+        gpu_capacity = int(row.gpu_count) if hasattr(row, "gpu_count") else int(row.gpu_capacity)
         clusters[str(row.cluster_id)] = {
             "capacity": float(row.capacity),
-            "gpu_capacity": int(row.gpu_capacity),
+            "gpu_capacity": gpu_capacity,
+            "gpu_type": str(getattr(row, "gpu_type", "")).strip(),
+            "cpu_capacity": float(getattr(row, "cpu_capacity", 0.0)),
+            "memory_capacity_gb": float(getattr(row, "memory_capacity_gb", 0.0)),
         }
     return clusters
 
@@ -136,14 +147,26 @@ def _can_place(
     duration: int,
     power_mw: float,
     gpus: int,
+    cpu: float,
+    memory_gb: float,
     power_used: dict[str, np.ndarray],
     gpu_used: dict[str, np.ndarray],
+    cpu_used: dict[str, np.ndarray],
+    memory_used: dict[str, np.ndarray],
     cluster_data: dict[str, dict[str, Any]],
 ) -> bool:
     stop = start + duration
     if np.any(power_used[cluster][start:stop] + power_mw > cluster_data[cluster]["capacity"] + 1e-12):
         return False
     if np.any(gpu_used[cluster][start:stop] + gpus > cluster_data[cluster]["gpu_capacity"]):
+        return False
+    if cluster_data[cluster]["cpu_capacity"] > 0 and np.any(
+        cpu_used[cluster][start:stop] + cpu > cluster_data[cluster]["cpu_capacity"]
+    ):
+        return False
+    if cluster_data[cluster]["memory_capacity_gb"] > 0 and np.any(
+        memory_used[cluster][start:stop] + memory_gb > cluster_data[cluster]["memory_capacity_gb"]
+    ):
         return False
     return True
 
@@ -154,10 +177,14 @@ def _place_job(
     duration: int,
     power_mw: float,
     gpus: int,
+    cpu: float,
+    memory_gb: float,
     clusters: list[str],
     horizon_hours: int,
     power_used: dict[str, np.ndarray],
     gpu_used: dict[str, np.ndarray],
+    cpu_used: dict[str, np.ndarray],
+    memory_used: dict[str, np.ndarray],
     cluster_data: dict[str, dict[str, Any]],
     max_attempts: int,
 ) -> tuple[str, int]:
@@ -170,8 +197,12 @@ def _place_job(
             duration=duration,
             power_mw=power_mw,
             gpus=gpus,
+            cpu=cpu,
+            memory_gb=memory_gb,
             power_used=power_used,
             gpu_used=gpu_used,
+            cpu_used=cpu_used,
+            memory_used=memory_used,
             cluster_data=cluster_data,
         ):
             return cluster, start
@@ -188,14 +219,18 @@ def _place_job(
                 duration=duration,
                 power_mw=power_mw,
                 gpus=gpus,
+                cpu=cpu,
+                memory_gb=memory_gb,
                 power_used=power_used,
                 gpu_used=gpu_used,
+                cpu_used=cpu_used,
+                memory_used=memory_used,
                 cluster_data=cluster_data,
             ):
                 return cluster, start
 
     raise ValueError(
-        "could not place a generated job without violating cluster power/GPU capacity; "
+        "could not place a generated job without violating cluster power/GPU/CPU/memory capacity; "
         "reduce num_jobs, duration, GPU demand, or power_per_gpu_kw"
     )
 
@@ -208,11 +243,12 @@ def _build_feasibility_report(
 ) -> FeasibilityReport:
     total_job_gpu_hours = float((jobs_df["gpus"] * jobs_df["duration"]).sum())
     total_job_mwh = float((jobs_df["power"] * jobs_df["duration"]).sum())
-    available_gpu_hours = float((clusters_df["gpu_capacity"] * len(next(iter(gpu_used.values())))).sum())
+    gpu_capacity_column = "gpu_count" if "gpu_count" in clusters_df.columns else "gpu_capacity"
+    available_gpu_hours = float((clusters_df[gpu_capacity_column] * len(next(iter(gpu_used.values())))).sum())
     available_cluster_mwh = float((clusters_df["capacity"] * len(next(iter(power_used.values())))).sum())
 
     max_gpu_ratio = max(
-        float(gpu_used[str(row.cluster_id)].max() / row.gpu_capacity)
+        float(gpu_used[str(row.cluster_id)].max() / getattr(row, gpu_capacity_column))
         for row in clusters_df.itertuples(index=False)
     )
     max_power_ratio = max(
@@ -242,13 +278,15 @@ def generate_feasible_instance(
     rng = np.random.default_rng(instance_config.seed)
     clusters_df = build_document_clusters() if clusters_df is None else clusters_df.copy()
     validate_clusters(clusters_df)
-    if "gpu_capacity" not in clusters_df.columns:
-        raise ValueError("clusters_df must include gpu_capacity for feasible instance generation")
+    if "gpu_capacity" not in clusters_df.columns and "gpu_count" not in clusters_df.columns:
+        raise ValueError("clusters_df must include gpu_capacity or gpu_count for feasible instance generation")
 
     cluster_data = _cluster_lookup(clusters_df)
     clusters = sorted(cluster_data)
     power_used = {cluster: np.zeros(instance_config.horizon_hours) for cluster in clusters}
     gpu_used = {cluster: np.zeros(instance_config.horizon_hours, dtype=int) for cluster in clusters}
+    cpu_used = {cluster: np.zeros(instance_config.horizon_hours) for cluster in clusters}
+    memory_used = {cluster: np.zeros(instance_config.horizon_hours) for cluster in clusters}
 
     job_rows: list[dict[str, Any]] = []
     hidden_rows: list[dict[str, Any]] = []
@@ -260,21 +298,29 @@ def generate_feasible_instance(
         jitter_high = 1.0 + instance_config.power_jitter_fraction
         power_kw = float(gpus * instance_config.power_per_gpu_kw * rng.uniform(jitter_low, jitter_high))
         power_mw = power_kw / 1000.0
+        cpu = float(gpus * instance_config.cpu_per_gpu)
+        memory_gb = float(gpus * instance_config.memory_gb_per_gpu)
         hidden_cluster, hidden_start = _place_job(
             rng=rng,
             duration=duration,
             power_mw=power_mw,
             gpus=gpus,
+            cpu=cpu,
+            memory_gb=memory_gb,
             clusters=clusters,
             horizon_hours=instance_config.horizon_hours,
             power_used=power_used,
             gpu_used=gpu_used,
+            cpu_used=cpu_used,
+            memory_used=memory_used,
             cluster_data=cluster_data,
             max_attempts=instance_config.max_placement_attempts_per_job,
         )
 
         power_used[hidden_cluster][hidden_start : hidden_start + duration] += power_mw
         gpu_used[hidden_cluster][hidden_start : hidden_start + duration] += gpus
+        cpu_used[hidden_cluster][hidden_start : hidden_start + duration] += cpu
+        memory_used[hidden_cluster][hidden_start : hidden_start + duration] += memory_gb
 
         compatible_clusters = _build_compatible_clusters(
             rng,
@@ -288,10 +334,19 @@ def generate_feasible_instance(
         latest_start = min(instance_config.horizon_hours - duration, hidden_start + slack_after)
 
         job_id = f"synthetic_{index + 1:05d}"
+        allowed_gpu_types = sorted(
+            {cluster_data[cluster]["gpu_type"] for cluster in compatible_clusters if cluster_data[cluster]["gpu_type"]}
+        )
+        workload_family = _sample_category(len(compatible_clusters))
         row: dict[str, Any] = {
             "job_id": job_id,
-            "category": _sample_category(len(compatible_clusters)),
+            "category": workload_family,
+            "workload_family": workload_family,
             "gpus": gpus,
+            "gpu_count_required": gpus,
+            "gpu_type_required": "|".join(allowed_gpu_types),
+            "cpu_required": cpu,
+            "memory_required_gb": memory_gb,
             "duration": duration,
             "duration_h": duration,
             "power_kw": round(power_kw, 6),
@@ -313,6 +368,10 @@ def generate_feasible_instance(
                 "duration": duration,
                 "power": round(power_mw, 9),
                 "gpus": gpus,
+                "gpu_count_required": gpus,
+                "gpu_type_required": "|".join(allowed_gpu_types),
+                "cpu_required": cpu,
+                "memory_required_gb": memory_gb,
             }
         )
 
@@ -325,6 +384,7 @@ def generate_feasible_instance(
         renewable_price=instance_config.renewable_price,
         peak_price=instance_config.peak_price,
         delta_t=1.0,
+        pue=instance_config.pue,
     )
     report = _build_feasibility_report(jobs_df, clusters_df, power_used, gpu_used)
 

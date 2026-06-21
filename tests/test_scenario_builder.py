@@ -118,3 +118,42 @@ def test_build_repo_scenario_accepts_explicit_job_instance(tmp_path):
     assert hourly_df.loc[12, "renewable_available"] == 0.012
     assert (hourly_df["baseline_load"] == 0.02).all()
     assert config.renewable_price == 30
+
+
+def test_build_repo_scenario_enables_battery_only_when_requested(tmp_path):
+    project_root = tmp_path
+    jobs = project_root / "jobs.csv"
+    price = project_root / "docs" / "energy_price" / "marginalpdbc_20230404.1"
+    solar = project_root / "data" / "solar_profile" / "monthly_solar_profiles.csv"
+    price.parent.mkdir(parents=True)
+    solar.parent.mkdir(parents=True)
+    _write_jobs(jobs)
+    _write_price(price)
+    _write_monthly_solar(solar)
+
+    _, _, _, config_without_battery = build_repo_scenario(
+        project_root=project_root,
+        jobs_csv=jobs,
+        energy_scenario="clear_sky",
+        solar_profile_csv=solar,
+        battery_power_capacity=0.5,
+        battery_energy_capacity=1.0,
+    )
+    _, _, _, config_with_battery = build_repo_scenario(
+        project_root=project_root,
+        jobs_csv=jobs,
+        energy_scenario="clear_sky",
+        solar_profile_csv=solar,
+        use_battery=True,
+        battery_power_capacity=0.5,
+        battery_energy_capacity=1.0,
+        battery_initial_soc=0.2,
+        battery_final_soc=0.1,
+    )
+
+    assert config_without_battery.battery_power_capacity == 0.0
+    assert config_without_battery.battery_energy_capacity == 0.0
+    assert config_with_battery.battery_power_capacity == 0.5
+    assert config_with_battery.battery_energy_capacity == 1.0
+    assert config_with_battery.battery_initial_soc == 0.2
+    assert config_with_battery.battery_final_soc == 0.1

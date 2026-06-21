@@ -9,6 +9,18 @@ JOB_COLUMNS = {"job_id", "category", "duration", "power", "earliest_start", "lat
 CLUSTER_COLUMNS = {"cluster_id", "capacity", "compatible_categories"}
 HOURLY_COLUMNS = {"hour", "renewable_available", "grid_price"}
 OPTIONAL_HOURLY_NONNEGATIVE_COLUMNS = {"baseline_load"}
+OPTIONAL_JOB_NONNEGATIVE_COLUMNS = {
+    "gpu_count_required",
+    "cpu_required",
+    "memory_required_gb",
+    "gpus",
+}
+OPTIONAL_CLUSTER_NONNEGATIVE_COLUMNS = {
+    "gpu_count",
+    "gpu_capacity",
+    "cpu_capacity",
+    "memory_capacity_gb",
+}
 
 
 def validate_jobs(jobs_df: pd.DataFrame) -> None:
@@ -27,8 +39,13 @@ def validate_jobs(jobs_df: pd.DataFrame) -> None:
         raise ValueError("all job durations must be positive")
     if (jobs_df["power"] <= 0).any():
         raise ValueError("all job powers must be positive")
-    if "gpus" in jobs_df.columns and (jobs_df["gpus"] <= 0).any():
-        raise ValueError("all GPU requirements must be positive")
+    for column in OPTIONAL_JOB_NONNEGATIVE_COLUMNS:
+        if column in jobs_df.columns and (jobs_df[column] < 0).any():
+            raise ValueError(f"job column {column} must be non-negative")
+    if "gpus" in jobs_df.columns and (jobs_df["gpus"] == 0).any():
+        raise ValueError("legacy gpus column must be positive when present")
+    if "gpu_count_required" in jobs_df.columns and (jobs_df["gpu_count_required"] <= 0).any():
+        raise ValueError("all generated jobs must require at least one GPU")
     if (jobs_df["earliest_start"] > jobs_df["latest_start"]).any():
         raise ValueError("earliest_start must be <= latest_start for every job")
     if jobs_df["category"].isna().any() or (jobs_df["category"].astype(str).str.len() == 0).any():
@@ -45,8 +62,12 @@ def validate_clusters(clusters_df: pd.DataFrame) -> None:
         raise ValueError("clusters_df must contain at least one cluster")
     if (clusters_df["capacity"] <= 0).any():
         raise ValueError("all cluster capacities must be positive")
-    if "gpu_capacity" in clusters_df.columns and (clusters_df["gpu_capacity"] <= 0).any():
-        raise ValueError("all cluster GPU capacities must be positive")
+    for column in OPTIONAL_CLUSTER_NONNEGATIVE_COLUMNS:
+        if column in clusters_df.columns and (clusters_df[column] < 0).any():
+            raise ValueError(f"cluster column {column} must be non-negative")
+    for column in ("gpu_capacity", "gpu_count"):
+        if column in clusters_df.columns and (clusters_df[column] == 0).any():
+            raise ValueError(f"cluster column {column} must be positive when present")
 
 
 def validate_hourly_inputs(hourly_df: pd.DataFrame) -> None:

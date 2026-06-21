@@ -72,8 +72,13 @@ def load_job_instance_csv(
         {
             "job_id": source_df["job_id"].astype(str),
             "category": source_df["tier"].map(_normalize_tier),
+            "workload_family": source_df["tier"].map(_normalize_tier),
             "tier": source_df["tier"].astype(str),
             "gpus": source_df["gpus"].astype(int),
+            "gpu_count_required": source_df["gpus"].astype(int),
+            "gpu_type_required": "",
+            "cpu_required": source_df["gpus"].astype(float) * 8.0,
+            "memory_required_gb": source_df["gpus"].astype(float) * 48.0,
             "duration": source_df["duration_h"].astype(int),
             "duration_h": source_df["duration_h"].astype(int),
             "power_kw": source_df["e_kw"].astype(float),

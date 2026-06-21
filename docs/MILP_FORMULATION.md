@@ -2,462 +2,339 @@
 
 ## 1. Problem Overview
 
-We model the operational scheduling problem of an AI-dedicated data center that runs flexible computational workloads such as model training, fine-tuning, preprocessing, batch inference, and data preparation.
+We model a deterministic static scheduling problem for an AI data center with
+flexible GPU jobs, heterogeneous compute partitions, time-varying grid prices,
+forecast renewable availability, PUE overhead, optional battery storage, and a
+contracted-power peak charge.
 
-The data center has heterogeneous compute clusters. Each cluster has its own power capacity and can run only compatible job categories. The scheduling horizon is divided into hourly time slots. Flexible jobs can be shifted within their allowed start windows, but once started they run continuously on one compatible cluster until completion.
+Layer 0 v2 keeps the compact non-preemptive assignment variable:
 
-The goal is to schedule jobs to minimize total energy-related cost:
+```text
+x[i,k,s] = 1 if job i starts on compute partition k at start time s.
+```
 
-1. Contracted renewable energy cost.
-2. Grid energy consumption cost.
-3. Peak demand cost.
+The main modeling change is that job feasibility is now driven by resource
+profiles rather than high-level workload labels. Business labels such as
+`training`, `fine_tuning`, or `preprocessing` remain useful for reporting and
+scenario interpretation, but compatibility is based on GPU type, GPU count,
+CPU, memory, and optional operational rules.
 
-The base model explicitly captures:
+The model is still an aggregate compute-partition model. It does not solve
+node-level bin packing. CPU and memory feasibility are approximated through
+aggregate capacity constraints per partition and time slot.
 
-- time-dependent grid prices,
-- forecasted renewable availability,
-- optional fixed baseline load,
-- job categories,
-- cluster-category compatibility,
-- heterogeneous cluster capacities,
-- contracted power as a soft peak-charge threshold,
-- peak demand charges on load above contracted power,
-- non-preemptive flexible jobs,
-- renewable curtailment,
-- peak demand cost.
+## 2. Assumptions
 
-The formulation distinguishes fixed non-shiftable baseline load from optimized
-flexible load. In the thesis setting, inference and Zone A can be represented as
-baseline load outside the decision variable, while fine-tuning, training, and
-preprocessing remain schedulable over Zones B, C, and D.
+1. The horizon is divided into discrete time slots, currently hours.
+2. Each flexible job is non-preemptive and runs continuously once started.
+3. A job stays on one compute partition for its full duration.
+4. Each generated or imported job requires GPU capacity.
+5. Job IT power is constant while active.
+6. Compute partitions aggregate machines with similar accelerator type and
+   operational role.
+7. GPU, CPU, and memory capacity constraints are aggregate partition-level
+   approximations, not node-level placement guarantees.
+8. PUE scales IT load into facility load before energy-source balancing.
+9. Renewable availability and grid prices are known over the horizon.
+10. Battery operation is continuous at the time-slot level with fixed charge
+    and discharge efficiencies.
+11. Contracted power is a soft economic threshold on grid import, not a hard
+    physical site limit.
 
-## 2. Modelling Assumptions
+## 3. Sets
 
-1. The scheduling horizon is 24 hourly slots.
-2. Each flexible workload is represented as one job.
-3. Each job belongs to one category, such as `training`, `inference`, `data_processing` or `fine_tuning`
-4. Each job is non-preemptive: after it starts, it runs for `d_i` consecutive hours without interruption.
-5. A non-preemptive job stays on the same cluster for its full duration.
-6. Each job has constant power demand while running.
-7. Compute clusters are heterogeneous.
-8. Each cluster has its own power capacity.
-9. A compatibility matrix determines which job categories can run on which clusters.
-10. Renewable availability is forecasted and exogenous.
-11. Grid prices are known over the horizon.
-12. Renewable price is a fixed contracted/PPA price.
-13. Peak demand charge is a real economic billing term, not an artificial penalty.
-14. Contracted power is a soft economic threshold.
-15. Peak demand charge is applied to the maximum facility load above contracted power.
+- $\mathcal{I}$: flexible jobs.
+- $\mathcal{K}$: compute partitions.
+- $\mathcal{T}$: time slots.
+- $\mathcal{S}_i$: feasible start slots for job $i$.
 
-Non-preemption is relevant because the decision variable can be a compact start-time assignment `x_{i,k,s}`. If preemption were allowed, the model would need additional run-state variables by job, cluster, and hour, plus constraints for remaining processing time, migration, continuity, and possibly checkpointing overhead.
-
-Possible future extensions include:
-
-- finer time resolution,
-- heterogeneous job power profiles,
-- battery storage,
-- multiple renewable sources,
-- uncertainty and stochastic optimization.
-
-## 3. Sets and Indices
-
-Let:
-
-$$
-\mathcal{T} = \{1,\dots,24\}
-$$
-
-be the set of hourly time slots.
-
-Let:
-
-$$
-\mathcal{I} = \{1,\dots,N\}
-$$
-
-be the set of flexible jobs.
-
-Let:
-
-$$
-\mathcal{K} = \{1,\dots,K\}
-$$
-
-be the set of compute clusters.
-
-Let:
-
-$$
-\mathcal{C}
-$$
-
-be the set of job categories.
-
-Let:
-
-$$
-\mathcal{S}_i \subseteq \mathcal{T}
-$$
-
-be the set of feasible start hours for job `i`.
-
-Indices:
-
-- $t \in \mathcal{T}$: time slot.
-- $i \in \mathcal{I}$: flexible job.
-- $k \in \mathcal{K}$: compute cluster.
-- $c \in \mathcal{C}$: job category.
-- $s \in \mathcal{S}_i$: feasible start hour for job `i`.
-
-## 4. Parameters
+## 4. Job Parameters
 
 For each job $i$:
 
-$$
-c_i \in \mathcal{C}
-$$
-
-is the category of job $i$.
-
-$$
-d_i
-$$
-
-is the duration of job $i$, in hours.
-
-$$
-p_i
-$$
-
-is the power required by job $i$ while running.
+- $d_i$: duration in time slots.
+- $p_i$: IT power demand in MW.
+- $g_i$: required GPU count.
+- $c_i$: required CPU capacity.
+- $m_i$: required memory in GB.
+- $\Gamma_i$: allowed GPU types. Empty means no explicit GPU-type restriction.
+- $w_i$: workload family used for reporting.
+- $A_{i,s,t}$: activity indicator equal to 1 if job $i$ is active at time $t$
+  when started at $s$.
 
 The activity indicator is:
 
 $$
 A_{i,s,t} =
 \begin{cases}
-1, & \text{if } s \leq t \leq s+d_i-1 \\
+1, & s \leq t \leq s+d_i-1 \\
 0, & \text{otherwise}
 \end{cases}
 $$
 
-This known parameter is what enforces continuous non-preemptive execution after choosing a start time.
+## 5. Compute-Partition Parameters
 
-For each cluster $k$:
+For each compute partition $k$:
 
-$$
-P^{cluster}_k
-$$
+- $P_k$: IT power capacity in MW.
+- $G_k$: GPU capacity.
+- $CPU_k$: aggregate CPU capacity.
+- $MEM_k$: aggregate memory capacity in GB.
+- $\gamma_k$: GPU type of the partition.
+- $\rho_k$: optional role, such as `serving_pool` or `mainstream_gpu_pool`.
 
-is the power capacity of cluster $k$.
+A job can run on partition $k$ if:
 
-Compatibility can be written either by category:
+1. $g_i \leq G_k$,
+2. $c_i \leq CPU_k$ when CPU capacity is modeled,
+3. $m_i \leq MEM_k$ when memory capacity is modeled,
+4. $\Gamma_i$ is empty or $\gamma_k \in \Gamma_i$,
+5. optional operational rules allow the assignment.
 
-$$
-M_{k,c} =
-\begin{cases}
-1, & \text{if cluster } k \text{ can run category } c \\
-0, & \text{otherwise}
-\end{cases}
-$$
+The implementation still accepts legacy `alpha_B`, `alpha_C`, and `alpha_D`
+columns as operational rules. When present, they are combined with resource
+compatibility.
 
-or directly by job and cluster:
+## 6. Energy Parameters
 
-$$
-C_{i,k} = M_{k,c_i}
-$$
+For each time slot $t$:
 
-For each hour $t$:
+- $B_t$: fixed IT baseline load in MW.
+- $G^{ren}_t$: renewable availability in MW.
+- $\pi^{grid}_t$: grid price per MWh.
 
-$$
-G_t
-$$
+Other scalar parameters:
 
-is the renewable power available.
+- $\pi^{ren}$: renewable price per MWh.
+- $\pi^{peak}$: peak charge per MW.
+- $P^{contracted}$: contracted grid-import threshold in MW.
+- $\eta^{pue}$: PUE multiplier.
+- $\Delta t$: slot length in hours.
 
-$$
-B_t
-$$
+Battery parameters:
 
-is the fixed non-shiftable baseline load, such as inference load.
+- $P^{bat}$: battery charge/discharge power capacity in MW.
+- $E^{bat}$: battery energy capacity in MWh.
+- $SOC_0$: initial state of charge in MWh.
+- $SOC^{final}$: optional minimum final state of charge.
+- $\eta^c$: charge efficiency.
+- $\eta^d$: discharge efficiency.
 
-$$
-\pi^{grid}_t
-$$
+## 7. Decision Variables
 
-is the grid electricity price.
-
-Other parameters:
-
-$$
-\pi^{ren}
-$$
-
-is the renewable electricity price. Renewable use is chosen economically against
-the grid price subject to availability.
-
-$$
-\pi^{peak}
-$$
-
-is the price charged per unit of peak power demand.
-
-$$
-P^{contracted}
-$$
-
-is the contracted-power threshold above which peak charges apply.
-
-$$
-\Delta t = 1
-$$
-
-is the duration of each time slot in hours.
-
-## 5. Decision Variables
-
-Binary scheduling variable:
+Scheduling:
 
 $$
 x_{i,k,s} \in \{0,1\}
 $$
 
-where:
+Energy-source variables:
 
 $$
-x_{i,k,s}=1
+R_t \geq 0,\quad Q_t \geq 0
 $$
 
-if job $i$ starts in cluster $k$ at hour $s$, and 0 otherwise.
+where $R_t$ is renewable consumption and $Q_t$ is grid import.
 
-Continuous energy-source variables:
-
-$$
-R_t \geq 0
-$$
-
-renewable power consumed at hour $t$.
+Battery variables, enabled only when battery capacity is positive:
 
 $$
-Q_t \geq 0
+C_t \geq 0,\quad D_t \geq 0,\quad SOC_t \geq 0
 $$
 
-grid power consumed at hour $t$.
+where $C_t$ is battery charge power and $D_t$ is battery discharge power.
 
 Peak variables:
 
 $$
-P^{peak} \geq 0
+P^{peak} \geq 0,\quad E^{peak} \geq 0
 $$
 
-maximum data-center power reached over the horizon.
+## 8. Load Expressions
 
-$$
-E^{peak} \geq 0
-$$
-
-power above the contracted-power threshold.
-
-## 6. Physical Relationships
-
-### 6.1 Cluster Load
-
-The load of cluster $k$ at hour $t$ is:
+Compute-partition IT load:
 
 $$
 L_{k,t}(x)
 =
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
+\sum_i \sum_{s \in \mathcal{S}_i}
 p_i A_{i,s,t}x_{i,k,s}
 $$
 
-This is the sum of compatible flexible jobs assigned to cluster $k$ and active at hour $t$.
-
-### 6.2 Flexible and Total Data-Center Load
-
-The flexible load of the data center at hour $t$ is:
+Flexible IT load:
 
 $$
-L^{flex}_t(x)
-=
-\sum_{k \in \mathcal{K}} L_{k,t}(x)
+L^{flex}_t(x) = \sum_k L_{k,t}(x)
 $$
 
-Equivalently:
+Total IT load:
 
 $$
-L^{flex}_t(x)
-=
-\sum_{k \in \mathcal{K}}
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
-p_i A_{i,s,t}x_{i,k,s}
+L^{IT}_t(x) = B_t + L^{flex}_t(x)
 $$
 
-The total facility load includes fixed baseline load:
+Facility load after PUE:
 
 $$
-L_t(x) = B_t + L^{flex}_t(x)
+L^{facility}_t(x) = \eta^{pue} L^{IT}_t(x)
 $$
 
-### 6.3 Energy-Source Balance
+## 9. Constraints
 
-At each hour, total facility load is served by renewable and grid energy:
-
-$$
-R_t + Q_t = L_t(x)
-\quad \forall t \in \mathcal{T}
-$$
-
-### 6.4 Renewable Availability
-
-Renewable consumption cannot exceed renewable availability:
+Each job is scheduled exactly once:
 
 $$
-R_t \leq G_t
-\quad \forall t \in \mathcal{T}
+\sum_k \sum_{s \in \mathcal{S}_i} x_{i,k,s} = 1
+\quad \forall i
 $$
 
-Curtailment is not a decision variable in the current MILP. It is reported after
-solving as:
+Variables are created only for compatible job-partition pairs:
 
 $$
-U_t = G_t - R_t
+x_{i,k,s} \text{ exists only if } C_{i,k}=1
 $$
 
-where positive $U_t$ is available renewable energy not consumed by the optimal
-economic dispatch.
-
-### 6.5 Peak Load Definition
-
-The peak variable must be at least as large as total load in every hour:
+Partition power capacity:
 
 $$
-P^{peak} \geq L_t(x)
-\quad \forall t \in \mathcal{T}
+\sum_i \sum_s p_i A_{i,s,t}x_{i,k,s} \leq P_k
+\quad \forall k,t
 $$
 
-Since peak demand appears in the objective with positive coefficient
-$\pi^{peak}$, the optimizer has no incentive to set $P^{peak}$ above the maximum
-hourly load:
+Partition GPU capacity:
 
 $$
-P^{peak} = \max_{t \in \mathcal{T}} L_t(x)
+\sum_i \sum_s g_i A_{i,s,t}x_{i,k,s} \leq G_k
+\quad \forall k,t
 $$
 
-## 7. Constraints
-
-### 7.1 Job Assignment Constraint
-
-Each flexible job must be scheduled exactly once:
+Partition CPU capacity:
 
 $$
-\sum_{k \in \mathcal{K}}
-\sum_{s \in \mathcal{S}_i}
-x_{i,k,s}
-=
-1
-\quad \forall i \in \mathcal{I}
+\sum_i \sum_s c_i A_{i,s,t}x_{i,k,s} \leq CPU_k
+\quad \forall k,t
 $$
 
-### 7.2 Compatibility Domain Reduction
-
-Compatibility is imposed before model construction by creating variables only
-for compatible job-cluster pairs:
+Partition memory capacity:
 
 $$
-x_{i,k,s} \text{ exists only when } C_{i,k}=1
+\sum_i \sum_s m_i A_{i,s,t}x_{i,k,s} \leq MEM_k
+\quad \forall k,t
 $$
 
-### 7.3 Energy-Source Balance
+Energy balance without battery:
 
 $$
-R_t + Q_t
-=
-B_t
-+
-\sum_{k \in \mathcal{K}}
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
-p_i A_{i,s,t}x_{i,k,s}
-\quad \forall t \in \mathcal{T}
+R_t + Q_t = L^{facility}_t(x)
+\quad \forall t
 $$
 
-### 7.4 Renewable Availability
+Energy balance with battery:
 
 $$
-R_t \leq G_t
-\quad \forall t \in \mathcal{T}
+R_t + Q_t + D_t = L^{facility}_t(x) + C_t
+\quad \forall t
 $$
 
-### 7.5 Peak-Load Relationship
+Renewable availability:
 
 $$
-P^{peak}
-\geq
-\sum_{k \in \mathcal{K}}
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
-p_i A_{i,s,t}x_{i,k,s}
-\;+\;B_t
-\quad \forall t \in \mathcal{T}
+R_t \leq G^{ren}_t
+\quad \forall t
 $$
 
-### 7.6 Cluster-Capacity Constraint
-
-Each heterogeneous cluster has its own capacity:
+Battery limits:
 
 $$
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
-p_i A_{i,s,t}x_{i,k,s}
-\leq
-P^{cluster}_k
-\quad \forall k \in \mathcal{K},\; t \in \mathcal{T}
+0 \leq C_t \leq P^{bat},\quad
+0 \leq D_t \leq P^{bat},\quad
+0 \leq SOC_t \leq E^{bat}
 $$
 
-### 7.7 Contracted-Power Excess Relationship
+Battery state of charge:
 
-The full data-center load may exceed contracted power, but excess peak is
-charged:
+$$
+SOC_t =
+SOC_{t-1}
++ \eta^c C_t\Delta t
+- \frac{D_t\Delta t}{\eta^d}
+$$
+
+The first slot uses $SOC_0$ as the previous state. If a final SOC target is
+configured:
+
+$$
+SOC_T \geq SOC^{final}
+$$
+
+Grid-import peak:
+
+$$
+P^{peak} \geq Q_t
+\quad \forall t
+$$
+
+Contracted-power excess:
 
 $$
 E^{peak} \geq P^{peak} - P^{contracted}
 $$
 
-## 8. Objective Function
+## 10. Objective
 
-The objective is to minimize renewable cost, grid cost, and
-peak demand cost:
+The model minimizes renewable energy cost, grid energy cost, and grid-import
+peak cost:
 
 $$
 \min
 \left[
-\sum_{t \in \mathcal{T}}
+\sum_t
 \left(
 \pi^{ren}R_t
-+
-\pi^{grid}_tQ_t
++ \pi^{grid}_tQ_t
 \right)\Delta t
-+
-\pi^{peak}E^{peak}
++ \pi^{peak}E^{peak}
 \right]
 $$
 
-Renewable and grid consumption are optimized economically. If grid energy is
-cheaper than renewable energy in a specific hour, the model can choose grid
-energy instead of consuming all available renewable energy.
+Battery cycling currently has no degradation cost. If this becomes important,
+add a small charge/discharge throughput cost.
 
-## 9. Implementation Notes for Gurobi
+## 11. Implementation Schema
 
-Recommended Python inputs:
-
-`jobs_df` columns:
+`jobs_df` minimum columns:
 
 ```text
 job_id,category,duration,power,earliest_start,latest_start
 ```
+
+Resource-profile columns:
+
+```text
+workload_family,gpu_type_required,gpu_count_required,cpu_required,memory_required_gb
+```
+
+`gpu_type_required` may be empty or pipe-separated, for example:
+
+```text
+T4|G2|V100M32
+```
+
+`clusters_df` minimum legacy columns:
+
+```text
+cluster_id,capacity,compatible_categories
+```
+
+Compute-partition columns:
+
+```text
+cluster_role,power_capacity_kw,gpu_type,gpu_count,cpu_capacity,memory_capacity_gb
+```
+
+The model uses MW internally. If `power_capacity_kw` is provided, it is converted
+to MW. Job imports may preserve `power_kw`, but `power` is the canonical MW
+column consumed by the MILP.
 
 `hourly_df` columns:
 
@@ -471,50 +348,23 @@ Optional:
 baseline_load
 ```
 
-`clusters_df` columns:
+`ModelConfig` includes:
 
 ```text
-cluster_id,capacity,compatible_categories
+contracted_power, renewable_price, peak_price, delta_t, pue,
+battery_power_capacity, battery_energy_capacity, battery_initial_soc,
+battery_final_soc, battery_charge_efficiency, battery_discharge_efficiency
 ```
 
-`compatible_categories` should be a list in generated data or a comma-separated string when loaded from CSV.
+## 12. Current Scope
 
-`config.json` schema:
+This formulation is still a static deterministic MILP. It does not yet include:
 
-```json
-{
-  "contracted_power": 70,
-  "renewable_price": 50,
-  "peak_price": 1000,
-  "delta_t": 1
-}
-```
+- rolling-horizon rescheduling,
+- uncertainty,
+- node-level placement,
+- preemption,
+- QUBO conversion of the full resource/PUE/battery model.
 
-Implementation functions:
-
-1. `is_active(start, duration, hour)` computes $A_{i,s,t}$.
-2. `build_feasible_starts(jobs_df)` computes $\mathcal{S}_i$.
-3. `build_milp_model(jobs_df, hourly_df, clusters_df, config)` builds variables, expressions, constraints, and objective.
-4. `solve_model(model)` runs Gurobi.
-5. `extract_schedule(...)` and `extract_hourly_results(...)` produce readable result tables.
-
-## 10. Units
-
-- Power variables are in MW.
-- Energy over an hourly slot is MW x 1 hour = MWh.
-- Grid and renewable prices are in currency per MWh.
-- Peak price is in currency per MW.
-- Total cost is in currency units.
-
-## 11. Current Scope
-
-Do not implement QUBO in the first version.
-
-The current goal is to establish a correct, inspectable classical MILP baseline. Once validated, later work will address:
-
-- heuristic baselines,
-- QUBO reformulation,
-- variable-count analysis,
-- quantum feasibility,
-- hybrid quantum-classical decomposition,
-- benchmarking against classical baselines.
+The immediate objective is a correct, inspectable classical baseline before
+quantum or hybrid reformulations are extended.

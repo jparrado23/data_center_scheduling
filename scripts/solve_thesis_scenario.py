@@ -34,6 +34,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--renewable-price", type=float, default=40.0)
     parser.add_argument("--peak-price", type=float, default=1000.0)
     parser.add_argument("--contracted-power", type=float, default=0.222)
+    parser.add_argument("--pue", type=float, default=1.0)
+    parser.add_argument(
+        "--battery",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable or disable battery storage variables.",
+    )
+    parser.add_argument("--battery-power-capacity", type=float, default=0.0, help="Battery charge/discharge limit in MW.")
+    parser.add_argument("--battery-energy-capacity", type=float, default=0.0, help="Battery energy capacity in MWh.")
+    parser.add_argument("--battery-initial-soc", type=float, default=0.0, help="Initial battery state of charge in MWh.")
+    parser.add_argument("--battery-final-soc", type=float, help="Optional minimum final battery state of charge in MWh.")
+    parser.add_argument("--battery-charge-efficiency", type=float, default=0.95)
+    parser.add_argument("--battery-discharge-efficiency", type=float, default=0.95)
     parser.add_argument("--price-column", choices=["first", "last", "average"], default="last")
     parser.add_argument(
         "--gpu-constraints",
@@ -67,6 +80,14 @@ def main() -> None:
         peak_price=args.peak_price,
         contracted_power=args.contracted_power,
         price_column=args.price_column,
+        pue=args.pue,
+        use_battery=args.battery,
+        battery_power_capacity=args.battery_power_capacity,
+        battery_energy_capacity=args.battery_energy_capacity,
+        battery_initial_soc=args.battery_initial_soc,
+        battery_final_soc=args.battery_final_soc,
+        battery_charge_efficiency=args.battery_charge_efficiency,
+        battery_discharge_efficiency=args.battery_discharge_efficiency,
     )
 
     model, variables = build_milp_model(
@@ -100,12 +121,16 @@ def main() -> None:
         "grid_cost",
         "renewable_cost",
         "peak_load",
+        "peak_grid_import",
         "peak_over_contracted",
         "peak_cost",
+        "pue",
         "renewable_available_mwh",
         "renewable_energy_mwh",
         "renewable_curtailment_mwh",
         "grid_energy_mwh",
+        "battery_charge_mwh",
+        "battery_discharge_mwh",
     ]:
         print(f"{key}: {metrics[key]:,.6f}")
     print(f"Saved outputs to {output_dir}")
