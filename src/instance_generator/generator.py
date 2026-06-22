@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import ModelConfig
-from src.data.scenarios import build_document_clusters
+from src.data.scenarios import build_alibaba_gpu_type_clusters
 from src.data.synthetic import generate_toy_hourly_inputs
 from src.data.validation import validate_clusters, validate_hourly_inputs, validate_jobs
 
@@ -276,7 +276,7 @@ def generate_feasible_instance(
     """Generate a MILP-ready synthetic instance with a known feasible schedule."""
 
     rng = np.random.default_rng(instance_config.seed)
-    clusters_df = build_document_clusters() if clusters_df is None else clusters_df.copy()
+    clusters_df = build_alibaba_gpu_type_clusters() if clusters_df is None else clusters_df.copy()
     validate_clusters(clusters_df)
     if "gpu_capacity" not in clusters_df.columns and "gpu_count" not in clusters_df.columns:
         raise ValueError("clusters_df must include gpu_capacity or gpu_count for feasible instance generation")

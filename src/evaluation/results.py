@@ -74,6 +74,7 @@ def extract_hourly_results(hourly_df: pd.DataFrame, variables: dict[str, Any]) -
         row = {
             "hour": hour,
             "baseline_load": float(variables["baseline_load"][hour]),
+            "pue": float(variables.get("pue", {}).get(hour, 1.0)),
             "flexible_load": flexible,
             "it_load": it_load,
             "total_load": total,

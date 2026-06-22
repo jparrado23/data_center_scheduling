@@ -20,8 +20,9 @@ scenario interpretation, but compatibility is based on GPU type, GPU count,
 CPU, memory, and optional operational rules.
 
 The model is still an aggregate compute-partition model. It does not solve
-node-level bin packing. CPU and memory feasibility are approximated through
-aggregate capacity constraints per partition and time slot.
+node-level bin packing. The current Alibaba-aligned scenario builds one
+aggregate partition per GPU type. CPU and memory feasibility are approximated
+through aggregate capacity constraints per partition and time slot.
 
 ## 2. Assumptions
 
@@ -30,15 +31,20 @@ aggregate capacity constraints per partition and time slot.
 3. A job stays on one compute partition for its full duration.
 4. Each generated or imported job requires GPU capacity.
 5. Job IT power is constant while active.
-6. Compute partitions aggregate machines with similar accelerator type and
-   operational role.
-7. GPU, CPU, and memory capacity constraints are aggregate partition-level
+6. The Alibaba-aligned baseline uses seven compute partitions, one per GPU
+   type observed in the trace summary: A10, G2, G3, P100, T4, V100M16, and
+   V100M32.
+7. GPU capacity is mandatory in the baseline. CPU and memory constraints are
+   part of the formulation and enabled by default, but may be disabled for
+   explicit ablation experiments.
+8. GPU, CPU, and memory capacity constraints are aggregate partition-level
    approximations, not node-level placement guarantees.
-8. PUE scales IT load into facility load before energy-source balancing.
-9. Renewable availability and grid prices are known over the horizon.
-10. Battery operation is continuous at the time-slot level with fixed charge
+9. PUE always scales IT load into facility load before energy-source balancing.
+   PUE may be a scalar or a time-varying coefficient.
+10. Renewable availability and grid prices are known over the horizon.
+11. Battery operation is continuous at the time-slot level with fixed charge
     and discharge efficiencies.
-11. Contracted power is a soft economic threshold on grid import, not a hard
+12. Contracted power is a soft economic threshold on grid import, not a hard
     physical site limit.
 
 ## 3. Sets
@@ -102,13 +108,15 @@ For each time slot $t$:
 - $B_t$: fixed IT baseline load in MW.
 - $G^{ren}_t$: renewable availability in MW.
 - $\pi^{grid}_t$: grid price per MWh.
+- $\eta^{pue}_t$: PUE multiplier. If no time-varying PUE profile is supplied,
+  $\eta^{pue}_t = \eta^{pue}$ for all $t$.
 
 Other scalar parameters:
 
 - $\pi^{ren}$: renewable price per MWh.
 - $\pi^{peak}$: peak charge per MW.
 - $P^{contracted}$: contracted grid-import threshold in MW.
-- $\eta^{pue}$: PUE multiplier.
+- $\eta^{pue}$: default scalar PUE multiplier.
 - $\Delta t$: slot length in hours.
 
 Battery parameters:
@@ -176,7 +184,7 @@ $$
 Facility load after PUE:
 
 $$
-L^{facility}_t(x) = \eta^{pue} L^{IT}_t(x)
+L^{facility}_t(x) = \eta^{pue}_t L^{IT}_t(x)
 $$
 
 ## 9. Constraints
@@ -215,12 +223,18 @@ $$
 \quad \forall k,t
 $$
 
+This constraint is enabled by default and may be disabled only for explicit
+ablation experiments.
+
 Partition memory capacity:
 
 $$
 \sum_i \sum_s m_i A_{i,s,t}x_{i,k,s} \leq MEM_k
 \quad \forall k,t
 $$
+
+This constraint is enabled by default and may be disabled only for explicit
+ablation experiments.
 
 Energy balance without battery:
 

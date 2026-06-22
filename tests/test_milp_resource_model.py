@@ -125,6 +125,24 @@ def test_pue_scales_it_load_into_facility_load():
     assert hourly_results.loc[0, "grid_consumption"] == pytest.approx(0.015)
 
 
+def test_hourly_pue_overrides_constant_config_pue():
+    jobs_df = pd.DataFrame([_job("j1", earliest_start=0, latest_start=1)])
+    hourly_df = _hourly()
+    hourly_df["pue"] = [2.0, 1.0]
+    config = replace(ModelConfig(), pue=1.5, contracted_power=1.0)
+    model, variables = build_milp_model(jobs_df, hourly_df, _clusters().iloc[[0]], config)
+
+    _solve(model)
+
+    hourly_results = extract_hourly_results(hourly_df, variables)
+
+    assert set(hourly_results["pue"]) == {1.0, 2.0}
+    scheduled_hour = int(hourly_results.loc[hourly_results["flexible_load"] > 0, "hour"].iloc[0])
+    assert hourly_results.loc[scheduled_hour, "total_load"] == pytest.approx(
+        hourly_results.loc[scheduled_hour, "it_load"] * hourly_results.loc[scheduled_hour, "pue"]
+    )
+
+
 def test_battery_can_shift_grid_energy_from_cheap_hour_to_expensive_hour():
     jobs_df = pd.DataFrame([_job("j1", earliest_start=1, latest_start=1)])
     config = replace(
@@ -163,6 +181,82 @@ def test_resource_metadata_missing_capacity_fails_fast():
     )
 
     with pytest.raises(ValueError, match="CPU capacity"):
+        build_milp_model(jobs_df, _hourly(), clusters_df, ModelConfig())
+
+
+def test_cpu_and_memory_constraints_can_be_disabled_for_ablation():
+    jobs_df = pd.DataFrame([_job("j1")])
+    clusters_df = pd.DataFrame(
+        [
+            {
+                "cluster_id": "cluster_incomplete",
+                "capacity": 0.100,
+                "compatible_categories": "training",
+                "cluster_role": "incomplete_gpu_pool",
+                "gpu_type": "T4",
+                "gpu_count": 8,
+                "gpu_capacity": 8,
+            }
+        ]
+    )
+
+    model, variables = build_milp_model(
+        jobs_df,
+        _hourly(),
+        clusters_df,
+        ModelConfig(),
+        enforce_cpu_constraints=False,
+        enforce_memory_constraints=False,
+    )
+    model.update()
+
+    assert variables["enforce_cpu_capacity"] is False
+    assert variables["enforce_memory_capacity"] is False
+    assert len(variables["x"]) > 0
+
+
+def test_cpu_over_capacity_is_allowed_when_cpu_constraints_are_disabled():
+    jobs_df = pd.DataFrame([_job("j1", cpu_required=32)])
+    clusters_df = _clusters().iloc[[0]].copy()
+    clusters_df["cpu_capacity"] = [8]
+
+    model, variables = build_milp_model(
+        jobs_df,
+        _hourly(),
+        clusters_df,
+        ModelConfig(),
+        enforce_cpu_constraints=False,
+    )
+    model.update()
+
+    assert variables["enforce_cpu_capacity"] is False
+    assert len(variables["x"]) > 0
+
+
+def test_memory_over_capacity_is_allowed_when_memory_constraints_are_disabled():
+    jobs_df = pd.DataFrame([_job("j1", memory_required_gb=256)])
+    clusters_df = _clusters().iloc[[0]].copy()
+    clusters_df["memory_capacity_gb"] = [64]
+
+    model, variables = build_milp_model(
+        jobs_df,
+        _hourly(),
+        clusters_df,
+        ModelConfig(),
+        enforce_memory_constraints=False,
+    )
+    model.update()
+
+    assert variables["enforce_memory_capacity"] is False
+    assert len(variables["x"]) > 0
+
+
+def test_resource_profile_still_enforces_category_allowlist():
+    jobs_df = pd.DataFrame([_job("j1", category="inference", workload_family="inference")])
+    clusters_df = _clusters().iloc[[0]].copy()
+    clusters_df["compatible_categories"] = ["training"]
+
+    with pytest.raises(ValueError, match="jobs have no compatible cluster"):
         build_milp_model(jobs_df, _hourly(), clusters_df, ModelConfig())
 
 

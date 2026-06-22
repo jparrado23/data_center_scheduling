@@ -14,7 +14,10 @@ def test_generate_feasible_instance_returns_valid_model_inputs():
     assert len(instance.jobs_df) == 80
     assert len(instance.hourly_df) == 24
     assert len(instance.hidden_schedule_df) == 80
-    assert {"alpha_B", "alpha_C", "alpha_D"}.issubset(instance.jobs_df.columns)
+    assert {"gpu_type_required", "gpu_count_required", "cpu_required", "memory_required_gb"}.issubset(
+        instance.jobs_df.columns
+    )
+    assert set(instance.clusters_df["gpu_type"]) == {"A10", "G2", "G3", "P100", "T4", "V100M16", "V100M32"}
     assert instance.feasibility_report.gpu_utilization_ratio > 0
     assert instance.feasibility_report.power_utilization_ratio > 0
 

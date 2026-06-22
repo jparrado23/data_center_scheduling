@@ -13,7 +13,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data.scenarios import ENERGY_SCENARIOS, WORKLOAD_FILES, build_repo_scenario
+from src.data.scenarios import (
+    CLUSTER_MODE_ALIBABA_GPU_TYPES,
+    CLUSTER_MODES,
+    ENERGY_SCENARIOS,
+    WORKLOAD_FILES,
+    build_repo_scenario,
+)
 from src.evaluation.metrics import compute_summary_metrics
 from src.evaluation.results import extract_cluster_hourly_results, extract_hourly_results, extract_schedule
 from src.milp.gurobi_model import build_milp_model
@@ -29,6 +35,7 @@ def parse_args() -> argparse.Namespace:
         help="Specific job instance CSV. Relative paths are resolved from the repo root.",
     )
     parser.add_argument("--scenario", choices=sorted(ENERGY_SCENARIOS), default="base")
+    parser.add_argument("--cluster-mode", choices=sorted(CLUSTER_MODES), default=CLUSTER_MODE_ALIBABA_GPU_TYPES)
     parser.add_argument("--solar-profile", type=Path, default=Path("data/solar_profile/monthly_solar_profiles.csv"))
     parser.add_argument("--baseline-load-mw", type=float, default=0.010)
     parser.add_argument("--renewable-price", type=float, default=40.0)
@@ -53,6 +60,18 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable or disable cluster GPU capacity constraints.",
+    )
+    parser.add_argument(
+        "--cpu-constraints",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable aggregate cluster CPU capacity constraints.",
+    )
+    parser.add_argument(
+        "--memory-constraints",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable aggregate cluster memory capacity constraints.",
     )
     parser.add_argument("--time-limit", type=float, default=60.0)
     parser.add_argument("--mip-gap", type=float)
@@ -88,6 +107,7 @@ def main() -> None:
         battery_final_soc=args.battery_final_soc,
         battery_charge_efficiency=args.battery_charge_efficiency,
         battery_discharge_efficiency=args.battery_discharge_efficiency,
+        cluster_mode=args.cluster_mode,
     )
 
     model, variables = build_milp_model(
@@ -96,6 +116,8 @@ def main() -> None:
         clusters_df,
         config,
         enforce_gpu_constraints=args.gpu_constraints,
+        enforce_cpu_constraints=args.cpu_constraints,
+        enforce_memory_constraints=args.memory_constraints,
     )
     model.Params.OutputFlag = 0 if args.quiet else 1
     solve_model(model, time_limit=args.time_limit, mip_gap=args.mip_gap)

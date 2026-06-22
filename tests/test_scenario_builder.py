@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.data.scenarios import build_document_clusters, build_repo_scenario, build_thesis_scenario
+from src.data.scenarios import (
+    build_alibaba_gpu_type_clusters,
+    build_document_clusters,
+    build_repo_scenario,
+    build_thesis_scenario,
+)
 
 
 def _write_jobs(path: Path) -> None:
@@ -61,6 +66,16 @@ def test_build_document_clusters_excludes_inference_zone_by_default():
     assert list(clusters_df["gpu_capacity"]) == [120, 160, 32]
 
 
+def test_build_alibaba_gpu_type_clusters_creates_one_cluster_per_gpu_type():
+    clusters_df = build_alibaba_gpu_type_clusters()
+
+    assert set(clusters_df["gpu_type"]) == {"A10", "G2", "G3", "P100", "T4", "V100M16", "V100M32"}
+    assert len(clusters_df) == 7
+    assert clusters_df.set_index("gpu_type").loc["G2", "gpu_capacity"] == 4392
+    assert (clusters_df["cpu_capacity"] > 0).all()
+    assert (clusters_df["memory_capacity_gb"] > 0).all()
+
+
 def test_build_thesis_scenario_combines_source_files(tmp_path):
     jobs = tmp_path / "jobs.csv"
     price = tmp_path / "marginalpdbc.1"
@@ -82,7 +97,7 @@ def test_build_thesis_scenario_combines_source_files(tmp_path):
 
     assert len(jobs_df) == 1
     assert len(hourly_df) == 24
-    assert len(clusters_df) == 3
+    assert len(clusters_df) == 7
     assert hourly_df.loc[0, "grid_price"] == 201.0
     assert hourly_df.loc[12, "renewable_available"] == 0.012
     assert (hourly_df["baseline_load"] == 0.01).all()
@@ -113,7 +128,7 @@ def test_build_repo_scenario_accepts_explicit_job_instance(tmp_path):
 
     assert len(jobs_df) == 1
     assert len(hourly_df) == 24
-    assert len(clusters_df) == 3
+    assert len(clusters_df) == 7
     assert hourly_df.loc[0, "grid_price"] == 201.0
     assert hourly_df.loc[12, "renewable_available"] == 0.012
     assert (hourly_df["baseline_load"] == 0.02).all()

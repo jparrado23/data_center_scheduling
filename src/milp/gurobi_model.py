@@ -152,10 +152,29 @@ def _has_resource_profile(jobs: dict[str, Any], cluster_data: dict[str, Any]) ->
     )
 
 
-def _is_compatible(job: dict[str, Any], cluster: str, cluster_data: dict[str, Any]) -> int:
+def _category_allowed(job: dict[str, Any], cluster_profile: dict[str, Any]) -> bool:
+    if cluster_profile.get("reserved_for_online_inference", False) and job["workload_family"] in {
+        "online_inference",
+        "inference",
+    }:
+        return True
+    allowed_categories = cluster_profile.get("compatible_categories", set())
+    return not allowed_categories or job["category"] in allowed_categories
+
+
+def _is_compatible(
+    job: dict[str, Any],
+    cluster: str,
+    cluster_data: dict[str, Any],
+    *,
+    enforce_cpu_constraints: bool,
+    enforce_memory_constraints: bool,
+) -> int:
     """Return compatibility using resource profiles when available."""
 
     cluster_profile = cluster_data[cluster]
+    if not _category_allowed(job, cluster_profile):
+        return 0
     if _has_resource_profile(job, cluster_profile):
         if cluster_profile["reserved_for_online_inference"] and job["workload_family"] not in {"online_inference", "inference"}:
             return 0
@@ -167,9 +186,17 @@ def _is_compatible(job: dict[str, Any], cluster: str, cluster_data: dict[str, An
             required_gpu_types = job["gpu_type_required"]
             if required_gpu_types and cluster_profile["gpu_type"] not in required_gpu_types:
                 return 0
-        if cluster_profile["cpu_capacity"] > 0 and job["cpu_required"] > cluster_profile["cpu_capacity"]:
+        if (
+            enforce_cpu_constraints
+            and cluster_profile["cpu_capacity"] > 0
+            and job["cpu_required"] > cluster_profile["cpu_capacity"]
+        ):
             return 0
-        if cluster_profile["memory_capacity_gb"] > 0 and job["memory_required_gb"] > cluster_profile["memory_capacity_gb"]:
+        if (
+            enforce_memory_constraints
+            and cluster_profile["memory_capacity_gb"] > 0
+            and job["memory_required_gb"] > cluster_profile["memory_capacity_gb"]
+        ):
             return 0
         if cluster in job:
             return int(job[cluster])
@@ -217,7 +244,13 @@ def build_milp_model(
     clusters = list(cluster_data)
     feasible_starts = build_feasible_starts(jobs_df)
     compatibility = {
-        (job_id, cluster): _is_compatible(jobs[job_id], cluster, cluster_data)
+        (job_id, cluster): _is_compatible(
+            jobs[job_id],
+            cluster,
+            cluster_data,
+            enforce_cpu_constraints=enforce_cpu_constraints,
+            enforce_memory_constraints=enforce_memory_constraints,
+        )
         for job_id in job_ids
         for cluster in clusters
     }
@@ -248,6 +281,10 @@ def build_milp_model(
         baseline_load = dict(zip(hours, hourly_df["baseline_load"].astype(float), strict=True))
     else:
         baseline_load = {hour: 0.0 for hour in hours}
+    if "pue" in hourly_df.columns:
+        pue = dict(zip(hours, hourly_df["pue"].astype(float), strict=True))
+    else:
+        pue = {hour: float(config.pue) for hour in hours}
 
     model = gp.Model(model_name)
 
@@ -327,7 +364,7 @@ def build_milp_model(
             if is_active(start, jobs[job_id]["duration"], hour)
         )
         it_load[hour] = flexible_load[hour] + baseline_load[hour]
-        total_load[hour] = config.pue * it_load[hour]
+        total_load[hour] = pue[hour] * it_load[hour]
 
     # 1. Each job scheduled exactly once.
     for job_id in job_ids:
@@ -416,6 +453,7 @@ def build_milp_model(
         "it_load": it_load,
         "total_load": total_load,
         "baseline_load": baseline_load,
+        "pue": pue,
         "renewable_available": renewable_available,
         "feasible_starts": feasible_starts,
         "compatibility": compatibility,

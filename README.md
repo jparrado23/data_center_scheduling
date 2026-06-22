@@ -39,7 +39,9 @@ The system receives a set of AI jobs. Each job has:
 - an earliest and latest allowed start time;
 - resource requirements such as GPU type, GPU count, CPU, and memory.
 
-The data center contains multiple compute partitions. Each partition has:
+The data center contains multiple compute partitions. In the current
+Alibaba-aligned baseline, the scenario builder creates one aggregate partition
+per GPU type observed in the trace summary. Each partition has:
 
 - an IT power capacity;
 - GPU type and GPU capacity;
@@ -52,7 +54,8 @@ For every hour in the planning horizon, the model also receives:
 - optional fixed IT baseline load;
 - grid energy price;
 - contracted power as a soft grid-import peak-charge threshold;
-- PUE, which scales IT load into facility load;
+- PUE, which scales IT load into facility load and can be supplied as either a
+  scalar or an hourly coefficient;
 - renewable and peak-demand pricing parameters.
 
 The scheduler must assign every flexible job to exactly one compatible partition
@@ -86,8 +89,9 @@ The implemented model includes:
 - non-preemptive job scheduling;
 - heterogeneous compute-partition capacities;
 - resource-profile compatibility using GPU type, GPU count, CPU, and memory;
-- per-partition power, GPU, CPU, and memory limits;
-- PUE scaling from IT load to facility load;
+- per-partition power, GPU, CPU, and memory limits, with CPU/memory enabled by
+  default and disable-able only for ablation experiments;
+- scalar or hourly PUE scaling from IT load to facility load;
 - optional battery storage with charge/discharge/SOC constraints;
 - contracted power as a soft grid-import peak-charge threshold;
 - peak demand charges on grid import above contracted power;
@@ -157,15 +161,16 @@ It writes `schedule.csv`, `hourly_results.csv`,
 Available workload cases are `light`, `tense`, and `limit`. Available energy
 scenarios are `clear_sky`, `overcast`, and `base`.
 
-GPU capacity constraints are enabled by default when job and cluster GPU
-columns are available. For the simplest MVP run without GPU capacity limits,
-use:
+GPU, CPU, and memory capacity constraints are enabled by default when metadata
+is available. For explicit ablation runs, use the `--no-gpu-constraints`,
+`--no-cpu-constraints`, or `--no-memory-constraints` flags:
 
 ```bash
 conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
   --workload tense \
   --scenario base \
-  --no-gpu-constraints
+  --no-cpu-constraints \
+  --no-memory-constraints
 ```
 
 Battery storage is disabled by default. Enable it explicitly with:
@@ -181,6 +186,8 @@ conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
 ```
 
 Use `--pue` to scale IT load into facility load, for example `--pue 1.2`.
+If the hourly input table contains a positive `pue` column, those hourly
+coefficients override the scalar value for the corresponding time slots.
 
 Run the toy MILP notebook with:
 
@@ -200,7 +207,7 @@ The synthetic input tables use the following columns:
   optional resource columns such as `cluster_role`, `gpu_type`, `gpu_count`,
   `cpu_capacity`, and `memory_capacity_gb`
 - `hourly_df`: `hour`, `renewable_available`, `grid_price`, optional
-  `baseline_load`
+  `baseline_load`, optional hourly `pue`
 - `config`: `contracted_power` soft peak-charge threshold, `renewable_price`,
   `peak_price` excess-demand rate, `delta_t`, `pue`, and optional battery
   capacity/efficiency settings

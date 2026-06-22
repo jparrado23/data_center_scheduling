@@ -6,9 +6,8 @@ This document explains how the current branch decides whether a job can run on
 a compute partition and how resource usage is constrained over time.
 
 The current model is an aggregate compute-partition scheduler. It does not
-assign jobs to individual machines or individual GPUs. Instead, each compute
-partition represents a pool of machines with similar operational role and
-hardware characteristics.
+assign jobs to individual machines or individual GPUs. In the Alibaba-aligned
+baseline, each compute partition represents one GPU type pool.
 
 ## Job Resource Profile
 
@@ -78,7 +77,9 @@ compatible_categories
 source data, but the MILP converts it to MW internally.
 
 `gpu_count` and `gpu_capacity` are treated as equivalent aggregate GPU-capacity
-columns. The current model assumes one main GPU type per partition.
+columns. The Alibaba-aligned scenario creates seven partitions, one for each GPU
+type observed in the trace summary: A10, G2, G3, P100, T4, V100M16, and
+V100M32.
 
 ## Compatibility Rules
 
@@ -106,20 +107,21 @@ Current compatibility checks:
    cluster.gpu_type in job.gpu_type_required
    ```
 
-5. If CPU requirements are present, they must fit:
+5. If CPU constraints are enabled and requirements are present, they must fit:
 
    ```text
    cpu_required <= cpu_capacity
    ```
 
-6. If memory requirements are present, they must fit:
+6. If memory constraints are enabled and requirements are present, they must fit:
 
    ```text
    memory_required_gb <= memory_capacity_gb
    ```
 
 7. If legacy `alpha_B`, `alpha_C`, or `alpha_D` columns are present, they are
-   treated as additional operational allow/deny rules.
+   treated as additional operational allow/deny rules for matching legacy
+   clusters only.
 
 ## Aggregate Capacity Constraints
 
@@ -149,6 +151,9 @@ Memory:
 ```text
 sum active job memory on partition k at time t <= partition memory capacity
 ```
+
+CPU and memory constraints are enabled by default. They can be disabled for
+ablation experiments, but the baseline model should keep them active.
 
 If jobs request a resource but any partition is missing the corresponding
 capacity metadata, model construction fails fast. The model does not silently

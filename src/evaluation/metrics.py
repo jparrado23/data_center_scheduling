@@ -53,9 +53,12 @@ def compute_summary_metrics(hourly_results: pd.DataFrame, config: ModelConfig) -
     """
 
     cost_breakdown = compute_cost_breakdown(hourly_results, config)
+    pue_series = hourly_results["pue"] if "pue" in hourly_results.columns else pd.Series([config.pue])
     return {
         **cost_breakdown,
-        "pue": float(config.pue),
+        "pue": float(pue_series.mean()),
+        "pue_min": float(pue_series.min()),
+        "pue_max": float(pue_series.max()),
         "baseline_energy_mwh": _sum_column_mwh(hourly_results, "baseline_load", config),
         "flexible_energy_mwh": _sum_column_mwh(hourly_results, "flexible_load", config)
         if "flexible_load" in hourly_results.columns
