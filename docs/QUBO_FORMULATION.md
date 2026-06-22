@@ -1,5 +1,12 @@
 # QUBO Formulation
 
+> Current status: this document is a legacy/simplified QUBO draft. The
+> canonical MILP has since moved to a resource-profile compute-partition model
+> with aggregate GPU/CPU/memory constraints, PUE, optional battery storage, and
+> grid-import peak charges. Do not treat this QUBO document as an exact mapping
+> of the current MILP. Use it only as a starting point for a smaller assignment
+> and timing QUBO.
+
 This document derives the first QUBO draft for the AI data-center scheduling
 problem. The goal is to map the validated MILP structure into an unconstrained
 binary quadratic objective that can be tested with classical QUBO solvers before
@@ -11,13 +18,13 @@ constraints into quadratic penalties.
 
 ## 1. Scope
 
-The first QUBO should encode:
+The first simplified QUBO may encode:
 
 1. job assignment,
-2. cluster compatibility,
-3. cluster capacity,
-4. contracted-power capacity,
-5. peak-demand pressure based on maximum facility load,
+2. resource/partition compatibility,
+3. aggregate partition capacity,
+4. contracted grid-import pressure,
+5. peak-demand pressure based on grid import or a load proxy,
 6. time-varying energy cost,
 7. an optional peak-load proxy.
 
@@ -25,6 +32,9 @@ The first QUBO should not yet try to encode every MILP feature exactly. In
 particular, exact renewable allocation and exact peak-demand billing require
 auxiliary binary variables. Those can be added after the core scheduling QUBO is
 validated.
+
+The full resource/PUE/battery MILP should remain the source of truth for
+feasibility and cost while QUBO experiments are developed.
 
 ## 2. Sets and Parameters
 
@@ -204,7 +214,10 @@ $$
 L_{k,t}(x) \leq P^{cluster}_k
 $$
 
-Peak demand is billed on maximum facility load above contracted power.
+In the current MILP, peak demand is billed on maximum grid import above
+contracted power. Older QUBO sketches sometimes used facility load as a proxy;
+that should be treated as an approximation, not the current source-of-truth
+economic model.
 Inequality constraints are not directly QUBO constraints. There are two viable
 encodings for the hard cluster capacity and soft peak-excess terms.
 

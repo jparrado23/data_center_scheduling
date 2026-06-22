@@ -232,6 +232,11 @@ The current processed data folder also includes:
 
 More detail on the data files is in `data/README.md`.
 
+The detailed job-to-partition compatibility rules are documented in
+[`docs/RESOURCE_COMPATIBILITY.md`](docs/RESOURCE_COMPATIBILITY.md). The
+canonical mathematical formulation is in
+[`docs/MILP_FORMULATION.md`](docs/MILP_FORMULATION.md).
+
 ## Current State
 
 Implemented:

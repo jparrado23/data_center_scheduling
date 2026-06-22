@@ -368,3 +368,6 @@ This formulation is still a static deterministic MILP. It does not yet include:
 
 The immediate objective is a correct, inspectable classical baseline before
 quantum or hybrid reformulations are extended.
+
+For the implementation-level compatibility rules, see
+[`RESOURCE_COMPATIBILITY.md`](RESOURCE_COMPATIBILITY.md).

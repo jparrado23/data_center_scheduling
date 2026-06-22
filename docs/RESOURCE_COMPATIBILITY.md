@@ -1,0 +1,186 @@
+# Resource Compatibility and Compute-Partition Scheduling
+
+## Purpose
+
+This document explains how the current branch decides whether a job can run on
+a compute partition and how resource usage is constrained over time.
+
+The current model is an aggregate compute-partition scheduler. It does not
+assign jobs to individual machines or individual GPUs. Instead, each compute
+partition represents a pool of machines with similar operational role and
+hardware characteristics.
+
+## Job Resource Profile
+
+Each schedulable job has a business label and an operational resource profile.
+
+Business/reporting field:
+
+```text
+workload_family
+```
+
+Examples:
+
+```text
+training
+fine_tuning
+preprocessing
+inference
+online_inference
+```
+
+The optimizer primarily uses the resource fields:
+
+```text
+gpu_type_required
+gpu_count_required
+cpu_required
+memory_required_gb
+power
+duration
+earliest_start
+latest_start
+```
+
+`power` is IT power in MW. If source data contains `power_kw` or `e_kw`, it must
+be converted to model-ready MW in `power`.
+
+`gpu_type_required` can be empty or pipe-separated:
+
+```text
+T4
+G2
+T4|G2|V100M32
+```
+
+An empty GPU type means the job has no explicit GPU-type restriction. Jobs in
+the current thesis branch are still assumed to require positive GPU count.
+
+## Compute-Partition Profile
+
+Each compute partition can include:
+
+```text
+cluster_id
+cluster_role
+capacity
+gpu_type
+gpu_count
+gpu_capacity
+cpu_capacity
+memory_capacity_gb
+reserved_for_online_inference
+compatible_categories
+```
+
+`capacity` is IT power capacity in MW. `power_capacity_kw` may be supplied by
+source data, but the MILP converts it to MW internally.
+
+`gpu_count` and `gpu_capacity` are treated as equivalent aggregate GPU-capacity
+columns. The current model assumes one main GPU type per partition.
+
+## Compatibility Rules
+
+The model creates assignment variables only for compatible job-partition pairs:
+
+```text
+x[i,k,s] exists only if job i can run on partition k.
+```
+
+Current compatibility checks:
+
+1. If the partition is reserved for online inference, only `inference` or
+   `online_inference` jobs can use it.
+2. If the job requires GPUs, the partition must have positive GPU capacity.
+3. The job GPU count must fit within the partition GPU capacity:
+
+   ```text
+   gpu_count_required <= gpu_capacity
+   ```
+
+4. If the job specifies allowed GPU types, the partition GPU type must be one
+   of them:
+
+   ```text
+   cluster.gpu_type in job.gpu_type_required
+   ```
+
+5. If CPU requirements are present, they must fit:
+
+   ```text
+   cpu_required <= cpu_capacity
+   ```
+
+6. If memory requirements are present, they must fit:
+
+   ```text
+   memory_required_gb <= memory_capacity_gb
+   ```
+
+7. If legacy `alpha_B`, `alpha_C`, or `alpha_D` columns are present, they are
+   treated as additional operational allow/deny rules.
+
+## Aggregate Capacity Constraints
+
+After compatible variables are created, the MILP enforces per-partition,
+per-time-slot capacity constraints.
+
+Power:
+
+```text
+sum active job power on partition k at time t <= partition power capacity
+```
+
+GPU:
+
+```text
+sum active job GPU count on partition k at time t <= partition GPU capacity
+```
+
+CPU:
+
+```text
+sum active job CPU on partition k at time t <= partition CPU capacity
+```
+
+Memory:
+
+```text
+sum active job memory on partition k at time t <= partition memory capacity
+```
+
+If jobs request a resource but any partition is missing the corresponding
+capacity metadata, model construction fails fast. The model does not silently
+disable the resource constraint.
+
+## Relationship to Workload Labels
+
+`workload_family` and `category` are no longer the main feasibility mechanism.
+They are mainly useful for reporting, analysis, and business interpretation.
+
+If business rules must forbid a job from a partition even when resources fit,
+encode that rule explicitly through:
+
+- `reserved_for_online_inference`,
+- legacy `alpha_*` columns,
+- or a future explicit operational-compatibility table.
+
+## Limitations
+
+This model is not node-level bin packing.
+
+A schedule can satisfy aggregate GPU, CPU, memory, and power limits but still be
+impossible on individual machines if resources are fragmented across nodes. This
+is an accepted Layer 0 approximation.
+
+The current branch also assumes each partition has one main GPU type. A more
+detailed extension would model GPU-type capacity buckets:
+
+```text
+gpu_capacity[partition, gpu_type]
+gpu_load[partition, gpu_type, time]
+```
+
+That would improve realism for mixed-GPU clusters while avoiding full
+individual-GPU placement.

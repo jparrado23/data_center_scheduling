@@ -36,12 +36,14 @@ into final experiment instances.
 
 - Confirm whether the shared job files intentionally exclude continuous
   inference jobs or whether inference should be added as fixed baseline load.
-- Confirm whether `e_kw` is IT workload power or already facility/PUE-adjusted
-  power.
+- Treat `e_kw` as IT workload power. The model applies PUE separately to convert
+  IT load into facility load.
 - Confirm whether `t_min` and `t_max` are 1-based start-hour windows; the model
   currently uses zero-based hours.
-- Confirm whether compatibility should come from `alpha_B`, `alpha_C`,
-  `alpha_D` in the job files or from the existing cluster compatibility table.
+- Compatibility is now resource-profile driven: GPU type, GPU count, CPU,
+  memory, and optional operational rules. Existing `alpha_B`, `alpha_C`, and
+  `alpha_D` columns are retained as additional allow/deny rules for current
+  shared job files.
 - Clarify the role of `delta`: deadline/end time, delay allowance, or an
   explanatory field not needed by the current model.
 - Treat `jobs_light.csv`, `jobs_tense.csv`, and `jobs_limit.csv` as workload
@@ -56,3 +58,17 @@ into final experiment instances.
 - Use `jobs_limit.csv` as a near-limit feasibility and peak-pressure case.
 - Keep scenario inputs in named folders rather than overwriting the current
   processed synthetic instance.
+- Run each scenario with battery disabled by default, then repeat selected
+  scenarios with explicit battery settings.
+- Report IT energy, facility energy after PUE, grid import peak, renewable
+  curtailment, and battery charge/discharge totals separately.
+
+### Current Model Caveats
+
+- The current MILP is aggregate compute-partition scheduling, not node-level
+  placement or individual-GPU bin packing.
+- PUE is implemented as a scalar multiplier from IT load to facility load.
+- Battery storage is optional and simplified: no degradation cost and no binary
+  same-hour charge/discharge exclusion.
+- Contracted power is modeled as a soft grid-import billing threshold, not a
+  hard physical facility cap.
