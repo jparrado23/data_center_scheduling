@@ -1,129 +1,82 @@
 # Energy-Aware Scheduling for AI Data Centers
 
-AI data centers run workloads with very different timing requirements. Some
-jobs must be served immediately, while others can be delayed within a limited
-window without affecting the final service. At the same time, operators face
-power-cap limits, volatile electricity prices, renewable availability, and peak
-demand charges. The result is a scheduling problem: decide when and where to run
-flexible AI jobs so that compute demand is served while energy cost and power
-stress are reduced.
+This repository develops an optimization framework for scheduling flexible AI
+workloads in a data center with heterogeneous GPU resources, renewable
+availability, electricity prices, PUE overhead, optional battery storage, and
+grid-import peak charges.
 
-This project builds an optimization framework for that problem. The current
-focus is a mixed-integer linear programming (MILP) model that schedules flexible
-AI workloads over a 24-hour horizon across heterogeneous compute partitions.
-The model uses Gurobi to choose job start times, partition assignments,
-renewable energy use, grid energy use, optional battery operation, and
-grid-import peak behavior.
+The current source-of-truth model is a Gurobi MILP. It chooses:
 
-The goal is to create a reliable baseline that can answer questions such as:
+- when each flexible job starts;
+- which compatible GPU partition runs it;
+- how much energy is supplied by renewables, grid import, and optional battery
+  discharge;
+- the resulting grid-import peak used for demand charges.
 
-- Which jobs should be shifted to cheaper or cleaner hours?
-- Which compute partition should run each workload?
-- How much grid energy is needed after using available renewable energy?
-- What is the tradeoff between energy cost, peak demand, and scheduling
-  flexibility?
-- How should exact optimization compare against heuristic and future
-  quantum-inspired approaches?
+The project is also preparing heuristic and quantum comparisons: genetic
+algorithm baselines, QUBO formulations, QAOA characterization, quantum
+annealing, and hybrid approaches.
 
-The quantum-related directories are present because they are part of the planned
-method comparison, but that work has not started yet.
+## Model At A Glance
 
-## Problem Being Solved
+The scheduler receives flexible AI jobs with:
 
-The system receives a set of AI jobs. Each job has:
+- workload family for interpretation, such as `training`, `fine_tuning`,
+  `preprocessing`, or inference-like workloads;
+- duration and feasible start window;
+- IT power demand in MW;
+- GPU type, GPU count, CPU, and memory requirements.
 
-- a workload family, such as training, inference, preprocessing, or
-  fine-tuning, used for interpretation;
-- a duration;
-- an IT power requirement in MW;
-- an earliest and latest allowed start time;
-- resource requirements such as GPU type, GPU count, CPU, and memory.
+The data center is represented as aggregate compute partitions. In the current
+Alibaba-aligned baseline, the scenario builder creates one partition per GPU
+type observed in the trace summary:
 
-The data center contains multiple compute partitions. In the current
-Alibaba-aligned baseline, the scenario builder creates one aggregate partition
-per GPU type observed in the trace summary. Each partition has:
+```text
+A10, G2, G3, P100, T4, V100M16, V100M32
+```
 
-- an IT power capacity;
-- GPU type and GPU capacity;
-- aggregate CPU and memory capacity;
-- an operational role in the scheduling decision.
+Each partition has IT power capacity, GPU capacity, CPU capacity, memory
+capacity, and an optional category allowlist. The model does not assign jobs to
+individual machines or individual GPUs; it is an aggregate scheduling model.
 
-For every hour in the planning horizon, the model also receives:
+For each time slot, the model uses:
 
-- available renewable energy;
-- optional fixed IT baseline load;
-- grid energy price;
-- contracted power as a soft grid-import peak-charge threshold;
-- PUE, which scales IT load into facility load and can be supplied as either a
-  scalar or an hourly coefficient;
-- renewable and peak-demand pricing parameters.
-
-The scheduler must assign every flexible job to exactly one compatible partition
-and one feasible start time. Once a job starts, it runs continuously until its
-duration is complete. Across the full schedule, partition power, GPU, CPU, and
-memory capacities must not be violated. Peak demand charges are measured from
-maximum grid import above contracted power.
-
-## How The Project Addresses It
-
-The current implementation formulates the scheduling task as a MILP. Binary
-decision variables select flexible job start times and cluster assignments.
-Continuous variables track renewable consumption, grid consumption,
-curtailment, optional battery charge/discharge/SOC, grid-import peak, and peak
-import above contracted power. The objective
-minimizes total operator cost, combining:
-
-- grid energy cost;
-- renewable energy cost;
-- peak-demand cost.
-
-The model distinguishes fixed baseline load from controllable flexible demand.
-For the thesis problem, inference can be represented as fixed baseline load
-outside the optimized job set, while fine-tuning, training, and preprocessing
-remain schedulable.
+- renewable availability;
+- grid price;
+- fixed IT baseline load, when present;
+- scalar or hourly PUE;
+- renewable price, peak price, and contracted grid-import threshold.
 
 ## Current MILP Capabilities
 
-The implemented model includes:
-
-- non-preemptive job scheduling;
-- heterogeneous compute-partition capacities;
-- resource-profile compatibility using GPU type, GPU count, CPU, and memory;
-- per-partition power, GPU, CPU, and memory limits, with CPU/memory enabled by
-  default and disable-able only for ablation experiments;
-- scalar or hourly PUE scaling from IT load to facility load;
-- optional battery storage with charge/discharge/SOC constraints;
-- contracted power as a soft grid-import peak-charge threshold;
-- peak demand charges on grid import above contracted power;
-- economic renewable/grid dispatch based on input prices;
-- renewable curtailment reporting;
-- grid-import peak minimization through the cost function;
-- result extraction, metrics, and plotting utilities.
+- Non-preemptive job scheduling.
+- Resource-profile compatibility using GPU type, GPU count, CPU, and memory.
+- Aggregate partition limits for IT power, GPU count, CPU, and memory.
+- CPU and memory constraints enabled by default, with explicit ablation flags.
+- Scalar or hourly PUE from IT load to facility load.
+- Optional battery charge, discharge, and SOC constraints.
+- Renewable/grid dispatch with renewable curtailment.
+- Grid-import peak charge above contracted power.
+- Result extraction for schedule, hourly energy balance, cluster load, and
+  summary metrics.
 
 ## Repository Layout
 
 ```text
-data/                  Raw and processed input data
-docs/                  Formulation notes, project roadmap, and price files
-notebooks/             Toy examples and experiment notebooks
-src/data/              Synthetic data, processed instances, and loaders
-src/milp/              Gurobi model construction and solve helpers
-src/heuristic/         Early classical heuristic code
-src/quantum/           QUBO and quantum-method placeholders
-src/evaluation/        Result extraction, metrics, and plots
-src/utils/             Shared utilities
-experiments/           Experiment configs and generated outputs
-tests/                 Unit tests
+data/                  Input data, processed examples, solar profiles
+docs/                  Formulation notes, roadmap, meeting notes, price files
+experiments/           Experiment outputs and configs
+notebooks/             MILP, Alibaba EDA, GA, and quantum exploration notebooks
+scripts/               Import and solve entry points
+src/data/              Scenario builders, data importers, validation
+src/evaluation/        Result extraction, metrics, plotting
+src/heuristic/         Classical heuristic placeholders and baselines
+src/instance_generator/
+                       Feasible-by-construction synthetic generator
+src/milp/              Gurobi MILP model and solver wrapper
+src/quantum/           QUBO, QAOA, and annealing scaffolding
+tests/                 Unit and regression tests
 ```
-
-## Units
-
-- Power is represented in MW.
-- One hourly time slot converts MW directly to MWh.
-- Grid and renewable prices are in currency per MWh.
-- Peak price is in currency per MW.
-- Reported cost values use the same abstract currency units as the input
-  prices.
 
 ## Setup
 
@@ -134,36 +87,71 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Gurobi must also be installed and licensed locally, or configured to use a
-license server.
+Gurobi must be installed and licensed locally, or configured through a license
+server.
 
-## Running The Main Examples
+The commands below assume the local conda environment used during development:
 
-Solve one thesis scenario from terminal with:
+```bash
+conda run -n quantum_py312 ...
+```
+
+## Quick Start
+
+Solve the default repo-local thesis scenario:
 
 ```bash
 conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
   --workload tense \
-  --scenario base
+  --scenario base \
+  --quiet
 ```
 
-This command reads repo-local inputs from:
+The script reads:
 
-- `data/instances/` for workload instances;
-- `data/solar_profile/monthly_solar_profiles.csv` for monthly hourly solar
-  availability;
-- `docs/energy_price/` for OMIE representative-day prices.
+- workload instances from `data/instances/`;
+- monthly solar profiles from `data/solar_profile/monthly_solar_profiles.csv`;
+- representative OMIE price files from `docs/energy_price/`.
 
-It writes `schedule.csv`, `hourly_results.csv`,
-`cluster_hourly_results.csv`, and `metrics.csv` under
-`experiments/outputs/<workload>_<scenario>/` unless `--output-dir` is provided.
+It writes:
 
-Available workload cases are `light`, `tense`, and `limit`. Available energy
-scenarios are `clear_sky`, `overcast`, and `base`.
+```text
+schedule.csv
+hourly_results.csv
+cluster_hourly_results.csv
+metrics.csv
+```
 
-GPU, CPU, and memory capacity constraints are enabled by default when metadata
-is available. For explicit ablation runs, use the `--no-gpu-constraints`,
-`--no-cpu-constraints`, or `--no-memory-constraints` flags:
+under `experiments/outputs/<workload>_<scenario>/`, unless `--output-dir` is
+provided.
+
+Available workload cases:
+
+```text
+light, tense, limit
+```
+
+Available energy scenarios:
+
+```text
+clear_sky, overcast, base
+```
+
+Available cluster modes:
+
+```text
+alibaba_gpu_types, document
+```
+
+The default is `alibaba_gpu_types`. Use `document` to recover the earlier
+three-partition thesis setup.
+
+## Main Configuration Knobs
+
+### Resource Constraints
+
+GPU, CPU, and memory constraints are enabled by default. For ablation
+experiments:
 
 ```bash
 conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
@@ -173,7 +161,26 @@ conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
   --no-memory-constraints
 ```
 
-Battery storage is disabled by default. Enable it explicitly with:
+`--no-gpu-constraints` also exists, but GPU constraints should remain enabled
+for baseline experiments.
+
+### PUE
+
+Use scalar PUE with:
+
+```bash
+conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
+  --workload tense \
+  --scenario base \
+  --pue 1.2
+```
+
+If `hourly_df` contains a positive `pue` column, those hourly coefficients
+override the scalar `--pue` value for each time slot.
+
+### Battery
+
+Battery storage is disabled by default. Enable it explicitly:
 
 ```bash
 conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
@@ -185,86 +192,144 @@ conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
   --battery-initial-soc 0.00
 ```
 
-Use `--pue` to scale IT load into facility load, for example `--pue 1.2`.
-If the hourly input table contains a positive `pue` column, those hourly
-coefficients override the scalar value for the corresponding time slots.
+Optional battery settings include final SOC, charge efficiency, and discharge
+efficiency.
 
-Run the toy MILP notebook with:
+## Notebooks
+
+Open the toy MILP notebook:
 
 ```bash
 jupyter notebook notebooks/01_milp_toy_example.ipynb
 ```
 
-The notebook builds a synthetic instance, solves it with Gurobi, extracts the
-selected schedule, computes cost and load metrics, and plots the hourly
-profiles.
-
-The synthetic input tables use the following columns:
-
-- `jobs_df`: `job_id`, `category`, `duration`, `power`, `earliest_start`,
-  `latest_start`
-- `clusters_df`: `cluster_id`, `capacity`, `compatible_categories`, plus
-  optional resource columns such as `cluster_role`, `gpu_type`, `gpu_count`,
-  `cpu_capacity`, and `memory_capacity_gb`
-- `hourly_df`: `hour`, `renewable_available`, `grid_price`, optional
-  `baseline_load`, optional hourly `pue`
-- `config`: `contracted_power` soft peak-charge threshold, `renewable_price`,
-  `peak_price` excess-demand rate, `delta_t`, `pue`, and optional battery
-  capacity/efficiency settings
-
-To solve a processed instance, use:
+Solve a repo-local or processed scenario:
 
 ```bash
 jupyter notebook notebooks/05_solve_processed_instance.ipynb
 ```
 
-By default, that notebook builds the same repo-local thesis scenario as the
-terminal script. Set `BUILD_FROM_SOURCE = False` only if you want to solve a
-preassembled processed folder containing:
+Explore Alibaba traces:
 
-```text
-jobs.csv
-hourly_inputs.csv
-clusters.csv
-config.json
+```bash
+jupyter notebook notebooks/06_alibaba_2023_trace_eda.ipynb
 ```
 
-The current processed data folder also includes:
+Run the current genetic algorithm baseline:
 
-- `clusters.csv`, with cluster assumptions in both source kW and model-ready
-  MW;
-- `job_types.csv`, with power, duration, and start-delay ranges for each job
-  type;
-- `jobs.csv`, a generated instance based on those job-type ranges.
+```bash
+jupyter notebook notebooks/07_genetic_algorithm_baseline.ipynb
+```
 
-More detail on the data files is in `data/README.md`.
+## Input Schema
 
-The detailed job-to-partition compatibility rules are documented in
-[`docs/RESOURCE_COMPATIBILITY.md`](docs/RESOURCE_COMPATIBILITY.md). The
-canonical mathematical formulation is in
-[`docs/MILP_FORMULATION.md`](docs/MILP_FORMULATION.md).
+The model-ready tables use these core columns.
+
+Jobs:
+
+```text
+job_id
+category
+workload_family
+duration
+power
+earliest_start
+latest_start
+gpu_type_required
+gpu_count_required
+cpu_required
+memory_required_gb
+```
+
+Clusters:
+
+```text
+cluster_id
+capacity
+compatible_categories
+cluster_role
+gpu_type
+gpu_count / gpu_capacity
+cpu_capacity
+memory_capacity_gb
+reserved_for_online_inference
+```
+
+Hourly inputs:
+
+```text
+hour
+renewable_available
+grid_price
+baseline_load          optional
+pue                    optional hourly override
+```
+
+Configuration:
+
+```text
+contracted_power
+renewable_price
+peak_price
+delta_t
+pue
+battery_power_capacity
+battery_energy_capacity
+battery_initial_soc
+battery_final_soc
+battery_charge_efficiency
+battery_discharge_efficiency
+```
+
+## Units
+
+- Power is represented in MW.
+- Energy is represented in MWh.
+- With hourly slots, `MW * 1 hour = MWh`.
+- Grid and renewable prices use currency per MWh.
+- Peak price uses currency per MW.
+- Cost values use the same abstract currency units as the input prices.
+
+## Documentation
+
+- [MILP formulation](docs/MILP_FORMULATION.md)
+- [Resource compatibility](docs/RESOURCE_COMPATIBILITY.md)
+- [Tiny and absurd validation plan](docs/TINY_ABSURD_INSTANCE_VALIDATION.md)
+- [Project roadmap](docs/PROJECT_ROADMAP.md)
+- [QUBO formulation notes](docs/QUBO_FORMULATION.md)
+- [Data notes](data/README.md)
+
+## Tests
+
+Run the full test suite:
+
+```bash
+conda run -n quantum_py312 pytest
+```
+
+Current coverage includes data import, scenario building, resource
+compatibility, PUE behavior, optional battery behavior, metrics, and the
+instance generator.
 
 ## Current State
 
 Implemented:
 
-- synthetic data generation;
-- processed-instance generation;
-- MILP model construction;
-- resource-profile compatibility and aggregate capacity constraints;
-- PUE and optional battery modeling;
-- Gurobi solve wrapper;
-- schedule extraction;
-- load and cost metrics;
-- plotting helpers;
-- basic tests.
+- MILP model construction and solve wrapper;
+- Alibaba GPU-type aggregate cluster mode;
+- resource-profile compatibility;
+- aggregate power, GPU, CPU, and memory constraints;
+- scalar and hourly PUE;
+- optional battery modeling;
+- feasible-by-construction synthetic generator;
+- GA baseline notebook;
+- schedule, hourly, cluster, and metric extraction;
+- regression tests for the current formulation.
 
-Still under development:
+Under development:
 
-- stronger heuristic baselines;
-- the full QUBO formulation;
-- QAOA and quantum annealing experiments;
-- broader experiment automation.
-
-The project roadmap is tracked in
-[`docs/PROJECT_ROADMAP.md`](docs/PROJECT_ROADMAP.md).
+- Alibaba-derived instance generator redesign;
+- broader MILP versus GA benchmarking;
+- QUBO formulation update for the current resource model;
+- QAOA and annealing experiments;
+- hybrid classical/quantum decomposition strategy.
