@@ -6,7 +6,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-def plot_hourly_profiles(hourly_results: pd.DataFrame) -> plt.Figure:
+def _time_axis(frame: pd.DataFrame, delta_t: float) -> pd.Series:
+    return frame["hour"] * float(delta_t)
+
+
+def plot_hourly_profiles(hourly_results: pd.DataFrame, *, delta_t: float = 1.0) -> plt.Figure:
     """Plot the solved load and supply profiles on a single time-series chart.
 
     The figure overlays flexible load, optional fixed baseline, total load,
@@ -15,7 +19,7 @@ def plot_hourly_profiles(hourly_results: pd.DataFrame) -> plt.Figure:
     """
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    hour = hourly_results["hour"]
+    hour = _time_axis(hourly_results, delta_t)
 
     if "baseline_load" in hourly_results.columns:
         ax.plot(hour, hourly_results["baseline_load"], linestyle=":", label="Fixed baseline load")
@@ -28,7 +32,7 @@ def plot_hourly_profiles(hourly_results: pd.DataFrame) -> plt.Figure:
         ax.plot(hour, hourly_results["renewable_curtailment"], linestyle="--", label="Renewable curtailment")
     ax.plot(hour, hourly_results["grid_consumption"], marker="s", label="Grid consumption")
 
-    ax.set_xlabel("Hour")
+    ax.set_xlabel("Elapsed time (hours)")
     ax.set_ylabel("Power (MW)")
     ax.set_title("MILP Schedule Load and Energy-Source Profiles")
     ax.grid(True, alpha=0.3)
@@ -37,7 +41,7 @@ def plot_hourly_profiles(hourly_results: pd.DataFrame) -> plt.Figure:
     return fig
 
 
-def plot_cluster_loads(cluster_hourly_results: pd.DataFrame) -> plt.Figure:
+def plot_cluster_loads(cluster_hourly_results: pd.DataFrame, *, delta_t: float = 1.0) -> plt.Figure:
     """Plot hourly load for each cluster against its capacity."""
 
     clusters = list(cluster_hourly_results["cluster_id"].unique())
@@ -48,19 +52,19 @@ def plot_cluster_loads(cluster_hourly_results: pd.DataFrame) -> plt.Figure:
     for ax, cluster in zip(axes, clusters, strict=True):
         data = cluster_hourly_results[cluster_hourly_results["cluster_id"] == cluster]
         capacity = float(data["capacity"].iloc[0])
-        ax.step(data["hour"], data["cluster_load"], where="mid", label="Cluster load")
+        ax.step(_time_axis(data, delta_t), data["cluster_load"], where="mid", label="Cluster load")
         ax.axhline(capacity, color="tab:red", linestyle="--", label="Capacity")
         ax.set_title(cluster)
         ax.set_ylabel("Power (MW)")
         ax.grid(True, alpha=0.3)
         ax.legend(loc="best")
 
-    axes[-1].set_xlabel("Hour")
+    axes[-1].set_xlabel("Elapsed time (hours)")
     fig.tight_layout()
     return fig
 
 
-def plot_schedule_gantt(schedule_df: pd.DataFrame) -> plt.Figure:
+def plot_schedule_gantt(schedule_df: pd.DataFrame, *, delta_t: float = 1.0) -> plt.Figure:
     """Plot a simple Gantt chart of selected jobs by assigned cluster."""
 
     ordered = schedule_df.sort_values(["assigned_cluster", "start_hour", "job_id"]).reset_index(drop=True)
@@ -72,14 +76,14 @@ def plot_schedule_gantt(schedule_df: pd.DataFrame) -> plt.Figure:
     for row_index, row in ordered.iterrows():
         ax.barh(
             row_index,
-            row["duration"],
-            left=row["start_hour"],
+            row["duration"] * delta_t,
+            left=row["start_hour"] * delta_t,
             color=colors(category_codes[row["category"]] % 10),
             edgecolor="black",
             alpha=0.85,
         )
         ax.text(
-            row["start_hour"] + row["duration"] / 2,
+            (row["start_hour"] + row["duration"] / 2) * delta_t,
             row_index,
             row["job_id"],
             ha="center",
@@ -90,7 +94,7 @@ def plot_schedule_gantt(schedule_df: pd.DataFrame) -> plt.Figure:
     y_labels = [f"{row.assigned_cluster}: {row.job_id}" for row in ordered.itertuples(index=False)]
     ax.set_yticks(range(len(ordered)))
     ax.set_yticklabels(y_labels)
-    ax.set_xlabel("Hour")
+    ax.set_xlabel("Elapsed time (hours)")
     ax.set_title("Selected Job Schedule")
     ax.grid(True, axis="x", alpha=0.3)
 

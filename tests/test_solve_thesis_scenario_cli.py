@@ -11,3 +11,10 @@ def test_parse_args_uses_exported_default_cluster_mode(monkeypatch):
 
     assert args.cluster_mode == CLUSTER_MODE_ALIBABA_GPU_TYPES
 
+
+def test_parse_args_accepts_processed_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "argv", ["solve_thesis_scenario.py", "--processed-dir", str(tmp_path)])
+
+    args = parse_args()
+
+    assert args.processed_dir == tmp_path

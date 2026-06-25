@@ -146,6 +146,17 @@ alibaba_gpu_types, document
 The default is `alibaba_gpu_types`. Use `document` to recover the earlier
 three-partition thesis setup.
 
+To solve a generated or processed instance directory directly:
+
+```bash
+conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
+  --processed-dir experiments/generated/alibaba_100 \
+  --quiet
+```
+
+The directory must contain model-ready `jobs.csv`, `hourly_inputs.csv`,
+`clusters.csv`, and `config.json`.
+
 ## Main Configuration Knobs
 
 ### Resource Constraints
@@ -194,6 +205,26 @@ conda run -n quantum_py312 python scripts/solve_thesis_scenario.py \
 
 Optional battery settings include final SOC, charge efficiency, and discharge
 efficiency.
+
+## Instance Generation
+
+Generate an Alibaba-calibrated feasible instance:
+
+```bash
+conda run -n quantum_py312 python -m src.instance_generator.cli \
+  --num-jobs 100 \
+  --output-dir experiments/generated/alibaba_100 \
+  --sampling-mode alibaba \
+  --slot-minutes 60
+```
+
+The generator samples empirical Alibaba job profiles and then places them into a
+hidden feasible schedule. It exports the hidden schedule for diagnostics, but
+the solver only uses the flexible model-ready input files.
+
+For 15-minute or 30-minute slots, regenerate the Alibaba calibration with the
+same `slot_minutes` first. The generator fails fast if calibration slot length
+and instance slot length differ.
 
 ## Notebooks
 
@@ -297,6 +328,7 @@ battery_discharge_efficiency
 - [Tiny and absurd validation plan](docs/TINY_ABSURD_INSTANCE_VALIDATION.md)
 - [Project roadmap](docs/PROJECT_ROADMAP.md)
 - [QUBO formulation notes](docs/QUBO_FORMULATION.md)
+- [Quantum agent architecture](docs/QUANTUM_AGENT_ARCHITECTURE.md)
 - [Data notes](data/README.md)
 
 ## Tests

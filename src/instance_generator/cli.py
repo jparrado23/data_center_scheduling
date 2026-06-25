@@ -7,7 +7,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from src.instance_generator.generator import SyntheticInstanceConfig, generate_feasible_instance
+from src.instance_generator.generator import SAMPLING_MODES, SyntheticInstanceConfig, generate_feasible_instance
 
 
 def _parse_args() -> argparse.Namespace:
@@ -16,6 +16,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory where generated files are written.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--horizon-hours", type=int, default=24)
+    parser.add_argument("--slot-minutes", type=int, default=60)
+    parser.add_argument("--sampling-mode", choices=sorted(SAMPLING_MODES), default="alibaba")
+    parser.add_argument(
+        "--alibaba-calibration-dir",
+        type=Path,
+        default=Path("experiments/outputs/alibaba_2023_eda"),
+    )
     parser.add_argument("--min-duration", type=int, default=1)
     parser.add_argument("--max-duration", type=int, default=6)
     parser.add_argument("--min-gpu-demand", type=int, default=1)
@@ -32,7 +39,10 @@ def main() -> None:
     config = SyntheticInstanceConfig(
         num_jobs=args.num_jobs,
         horizon_hours=args.horizon_hours,
+        slot_minutes=args.slot_minutes,
         seed=args.seed,
+        sampling_mode=args.sampling_mode,
+        alibaba_calibration_dir=args.alibaba_calibration_dir,
         min_duration=args.min_duration,
         max_duration=args.max_duration,
         min_gpu_demand=args.min_gpu_demand,

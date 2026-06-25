@@ -20,6 +20,7 @@ from src.data.scenarios import (
     WORKLOAD_FILES,
     build_repo_scenario,
 )
+from src.data.loaders import load_processed_inputs
 from src.evaluation.metrics import compute_summary_metrics
 from src.evaluation.results import extract_cluster_hourly_results, extract_hourly_results, extract_schedule
 from src.milp.gurobi_model import build_milp_model
@@ -29,6 +30,11 @@ from src.milp.solve import solve_model
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workload", choices=sorted(WORKLOAD_FILES), default="tense")
+    parser.add_argument(
+        "--processed-dir",
+        type=Path,
+        help="Directory containing model-ready jobs.csv, hourly_inputs.csv, clusters.csv, and config.json.",
+    )
     parser.add_argument(
         "--jobs-csv",
         type=Path,
@@ -88,27 +94,30 @@ def main() -> None:
     args = parse_args()
     output_dir = args.output_dir or PROJECT_ROOT / "experiments" / "outputs" / f"{args.workload}_{args.scenario}"
 
-    jobs_df, hourly_df, clusters_df, config = build_repo_scenario(
-        project_root=PROJECT_ROOT,
-        workload_case=args.workload,
-        jobs_csv=args.jobs_csv,
-        energy_scenario=args.scenario,
-        solar_profile_csv=args.solar_profile,
-        baseline_load_mw=args.baseline_load_mw,
-        renewable_price=args.renewable_price,
-        peak_price=args.peak_price,
-        contracted_power=args.contracted_power,
-        price_column=args.price_column,
-        pue=args.pue,
-        use_battery=args.battery,
-        battery_power_capacity=args.battery_power_capacity,
-        battery_energy_capacity=args.battery_energy_capacity,
-        battery_initial_soc=args.battery_initial_soc,
-        battery_final_soc=args.battery_final_soc,
-        battery_charge_efficiency=args.battery_charge_efficiency,
-        battery_discharge_efficiency=args.battery_discharge_efficiency,
-        cluster_mode=args.cluster_mode,
-    )
+    if args.processed_dir is not None:
+        jobs_df, hourly_df, clusters_df, config = load_processed_inputs(args.processed_dir)
+    else:
+        jobs_df, hourly_df, clusters_df, config = build_repo_scenario(
+            project_root=PROJECT_ROOT,
+            workload_case=args.workload,
+            jobs_csv=args.jobs_csv,
+            energy_scenario=args.scenario,
+            solar_profile_csv=args.solar_profile,
+            baseline_load_mw=args.baseline_load_mw,
+            renewable_price=args.renewable_price,
+            peak_price=args.peak_price,
+            contracted_power=args.contracted_power,
+            price_column=args.price_column,
+            pue=args.pue,
+            use_battery=args.battery,
+            battery_power_capacity=args.battery_power_capacity,
+            battery_energy_capacity=args.battery_energy_capacity,
+            battery_initial_soc=args.battery_initial_soc,
+            battery_final_soc=args.battery_final_soc,
+            battery_charge_efficiency=args.battery_charge_efficiency,
+            battery_discharge_efficiency=args.battery_discharge_efficiency,
+            cluster_mode=args.cluster_mode,
+        )
 
     model, variables = build_milp_model(
         jobs_df,

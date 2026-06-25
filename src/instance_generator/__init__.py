@@ -2,6 +2,8 @@
 
 from src.instance_generator.generator import (
     FeasibilityReport,
+    SAMPLING_MODE_ALIBABA,
+    SAMPLING_MODE_PARAMETRIC,
     SyntheticInstance,
     SyntheticInstanceConfig,
     generate_feasible_instance,
@@ -9,6 +11,8 @@ from src.instance_generator.generator import (
 
 __all__ = [
     "FeasibilityReport",
+    "SAMPLING_MODE_ALIBABA",
+    "SAMPLING_MODE_PARAMETRIC",
     "SyntheticInstance",
     "SyntheticInstanceConfig",
     "generate_feasible_instance",

@@ -1,0 +1,101 @@
+import pandas as pd
+
+from src.instance_generator.alibaba_calibration import (
+    AlibabaCalibrationConfig,
+    build_alibaba_generator_calibration,
+    normalize_gpu_spec,
+    prepare_alibaba_generator_samples,
+)
+
+
+def _pods() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "name": "j1",
+                "cpu_milli": 4000,
+                "memory_mib": 8192,
+                "num_gpu": 1,
+                "gpu_milli": 1000,
+                "gpu_spec": "",
+                "qos": "BE",
+                "pod_phase": "Succeeded",
+                "creation_time": 0,
+                "scheduled_time": 0,
+                "deletion_time": 1800,
+            },
+            {
+                "name": "j2",
+                "cpu_milli": 8000,
+                "memory_mib": 16384,
+                "num_gpu": 2,
+                "gpu_milli": 2000,
+                "gpu_spec": "V100M32|T4|T4",
+                "qos": "BE",
+                "pod_phase": "Succeeded",
+                "creation_time": 3600,
+                "scheduled_time": 3600,
+                "deletion_time": 10800,
+            },
+            {
+                "name": "too-long",
+                "cpu_milli": 8000,
+                "memory_mib": 16384,
+                "num_gpu": 1,
+                "gpu_milli": 1000,
+                "gpu_spec": "G2",
+                "qos": "BE",
+                "pod_phase": "Running",
+                "creation_time": 0,
+                "scheduled_time": 0,
+                "deletion_time": 10 * 3600,
+            },
+            {
+                "name": "no-gpu",
+                "cpu_milli": 1000,
+                "memory_mib": 1024,
+                "num_gpu": 0,
+                "gpu_milli": 0,
+                "gpu_spec": "",
+                "qos": "BE",
+                "pod_phase": "Succeeded",
+                "creation_time": 0,
+                "scheduled_time": 0,
+                "deletion_time": 3600,
+            },
+        ]
+    )
+
+
+def test_prepare_alibaba_generator_samples_filters_and_converts_slots():
+    samples = prepare_alibaba_generator_samples(_pods(), max_runtime_hours=4.0, slot_minutes=30)
+
+    assert samples["name"].tolist() == ["j1", "j2"]
+    assert samples["duration"].tolist() == [1, 4]
+    assert samples.loc[0, "gpu_type_required"] == ""
+    assert samples.loc[1, "gpu_type_required"] == "T4|V100M32"
+    assert samples.loc[1, "memory_required_gb"] == 16.0
+
+
+def test_normalize_gpu_spec_deduplicates_and_sorts_tokens():
+    assert normalize_gpu_spec("V100M32|T4|T4") == "T4|V100M32"
+    assert normalize_gpu_spec("") == ""
+
+
+def test_build_alibaba_generator_calibration_writes_expected_tables(tmp_path):
+    raw_dir = tmp_path / "raw"
+    output_dir = tmp_path / "outputs"
+    raw_dir.mkdir()
+    _pods().to_csv(raw_dir / "openb_pod_list_gpuspec33.csv", index=False)
+
+    outputs = build_alibaba_generator_calibration(
+        AlibabaCalibrationConfig(raw_dir=raw_dir, output_dir=output_dir, max_runtime_hours=4.0, slot_minutes=30)
+    )
+
+    assert outputs["alibaba_generator_job_samples"].shape[0] == 2
+    assert (output_dir / "alibaba_generator_job_samples.csv").exists()
+    assert (output_dir / "alibaba_jobs_per_24h.csv").exists()
+    summary = outputs["alibaba_generator_calibration_summary"].set_index("metric")["value"]
+    assert summary["generator_sample_jobs"] == 2
+    assert "filtered_jobs_per_24h_mean_by_day" in summary
+
