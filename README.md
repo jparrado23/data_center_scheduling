@@ -35,9 +35,10 @@ type observed in the trace summary:
 A10, G2, G3, P100, T4, V100M16, V100M32
 ```
 
-Each partition has IT power capacity, GPU capacity, CPU capacity, memory
-capacity, and an optional category allowlist. The model does not assign jobs to
-individual machines or individual GPUs; it is an aggregate scheduling model.
+Each partition has IT power capacity, GPU capacity, CPU capacity, and memory
+capacity. The model does not assign jobs to individual machines or individual
+GPUs; it is an aggregate scheduling model. Job `category` values are labels for
+reporting only and do not control compatibility.
 
 For each time slot, the model uses:
 
@@ -252,6 +253,12 @@ Run the current genetic algorithm baseline:
 jupyter notebook notebooks/07_genetic_algorithm_baseline.ipynb
 ```
 
+Run Gurobi stress tests on generated Alibaba-calibrated instances:
+
+```bash
+jupyter notebook notebooks/08_gurobi_generated_instance_stress_test.ipynb
+```
+
 ## Input Schema
 
 The model-ready tables use these core columns.
@@ -277,13 +284,11 @@ Clusters:
 ```text
 cluster_id
 capacity
-compatible_categories
 cluster_role
 gpu_type
 gpu_count / gpu_capacity
 cpu_capacity
 memory_capacity_gb
-reserved_for_online_inference
 ```
 
 Hourly inputs:

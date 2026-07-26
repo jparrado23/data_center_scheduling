@@ -1,0 +1,8 @@
+cluster_id,cluster_role,capacity_kw,capacity,power_capacity_kw,gpu_type,gpu_count,gpu_capacity,cpu_capacity,memory_capacity_gb
+cluster_a10,alibaba_gpu_type_pool,0.3,0.0003,0.3,A10,2,2,256.0,2048.0
+cluster_g2,alibaba_gpu_type_pool,1537.1999999999998,1.5372,1537.1999999999998,G2,4392,4392,52704.0,210816.0
+cluster_g3,alibaba_gpu_type_pool,109.19999999999999,0.10919999999999999,109.19999999999999,G3,312,312,4992.0,29952.0
+cluster_p100,alibaba_gpu_type_pool,66.25,0.06625,66.25,P100,265,265,3160.0,18772.0
+cluster_t4,alibaba_gpu_type_pool,58.940000000000005,0.058940000000000006,58.940000000000005,T4,842,842,41880.0,204672.0
+cluster_v100m16,alibaba_gpu_type_pool,48.75,0.04875,48.75,V100M16,195,195,1578.0,6320.0
+cluster_v100m32,alibaba_gpu_type_pool,51.0,0.051,51.0,V100M32,204,204,2448.0,19440.0

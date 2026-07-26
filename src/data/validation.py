@@ -6,7 +6,7 @@ import pandas as pd
 
 
 JOB_COLUMNS = {"job_id", "category", "duration", "power", "earliest_start", "latest_start"}
-CLUSTER_COLUMNS = {"cluster_id", "capacity", "compatible_categories"}
+CLUSTER_COLUMNS = {"cluster_id", "capacity"}
 HOURLY_COLUMNS = {"hour", "renewable_available", "grid_price"}
 OPTIONAL_HOURLY_NONNEGATIVE_COLUMNS = {"baseline_load", "pue"}
 OPTIONAL_JOB_NONNEGATIVE_COLUMNS = {
@@ -53,7 +53,7 @@ def validate_jobs(jobs_df: pd.DataFrame) -> None:
 
 
 def validate_clusters(clusters_df: pd.DataFrame) -> None:
-    """Validate heterogeneous cluster capacities and category compatibility."""
+    """Validate heterogeneous cluster capacities."""
 
     missing = CLUSTER_COLUMNS.difference(clusters_df.columns)
     if missing:

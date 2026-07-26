@@ -17,7 +17,7 @@ The main modeling change is that job feasibility is now driven by resource
 profiles rather than high-level workload labels. Business labels such as
 `training`, `fine_tuning`, or `preprocessing` remain useful for reporting and
 scenario interpretation, but compatibility is based on GPU type, GPU count,
-CPU, memory, and optional operational rules.
+CPU and memory.
 
 The model is still an aggregate compute-partition model. It does not solve
 node-level bin packing. The current Alibaba-aligned scenario builds one
@@ -87,19 +87,17 @@ For each compute partition $k$:
 - $CPU_k$: aggregate CPU capacity.
 - $MEM_k$: aggregate memory capacity in GB.
 - $\gamma_k$: GPU type of the partition.
-- $\rho_k$: optional role, such as `serving_pool` or `mainstream_gpu_pool`.
+- $\rho_k$: optional descriptive role, such as `mainstream_gpu_pool`.
 
 A job can run on partition $k$ if:
 
 1. $g_i \leq G_k$,
 2. $c_i \leq CPU_k$ when CPU capacity is modeled,
 3. $m_i \leq MEM_k$ when memory capacity is modeled,
-4. $\Gamma_i$ is empty or $\gamma_k \in \Gamma_i$,
-5. optional operational rules allow the assignment.
+4. $\Gamma_i$ is empty or $\gamma_k \in \Gamma_i$.
 
-The implementation still accepts legacy `alpha_B`, `alpha_C`, and `alpha_D`
-columns as operational rules. When present, they are combined with resource
-compatibility.
+Job categories are descriptive labels only. They are not used for
+job-to-partition compatibility in the active formulation.
 
 ## 6. Energy Parameters
 
@@ -334,10 +332,10 @@ workload_family,gpu_type_required,gpu_count_required,cpu_required,memory_require
 T4|G2|V100M32
 ```
 
-`clusters_df` minimum legacy columns:
+`clusters_df` minimum columns:
 
 ```text
-cluster_id,capacity,compatible_categories
+cluster_id,capacity
 ```
 
 Compute-partition columns:

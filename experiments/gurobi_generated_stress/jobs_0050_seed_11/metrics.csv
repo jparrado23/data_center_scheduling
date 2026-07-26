@@ -1,0 +1,2 @@
+renewable_cost,grid_cost,energy_cost,peak_load,peak_grid_import,contracted_power,peak_over_contracted,peak_cost,total_cost,pue,pue_min,pue_max,baseline_energy_mwh,flexible_energy_mwh,it_energy_mwh,total_energy_mwh,renewable_available_mwh,renewable_energy_mwh,renewable_curtailment_mwh,grid_energy_mwh,battery_charge_mwh,battery_discharge_mwh
+5.5788,14.85879,20.43759,0.01344,0.01344,10000.0,0.0,0.0,20.43759,1.1999999999999997,1.2,1.2,0.23999999999999996,0.0071400000000000005,0.24713999999999997,0.29656800000000005,0.611,0.13946999999999998,0.47153,0.15709800000000002,0.0,0.0

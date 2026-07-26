@@ -76,6 +76,17 @@ def test_build_alibaba_gpu_type_clusters_creates_one_cluster_per_gpu_type():
     assert (clusters_df["memory_capacity_gb"] > 0).all()
 
 
+def test_build_alibaba_gpu_type_clusters_accepts_aggregate_cpu_memory_capacity():
+    clusters_df = build_alibaba_gpu_type_clusters(
+        cpu_capacity={"G2": 52_704.0},
+        memory_capacity_gb={"G2": 210_816.0},
+    )
+    g2 = clusters_df.set_index("gpu_type").loc["G2"]
+
+    assert g2["cpu_capacity"] == 52_704.0
+    assert g2["memory_capacity_gb"] == 210_816.0
+
+
 def test_build_thesis_scenario_combines_source_files(tmp_path):
     jobs = tmp_path / "jobs.csv"
     price = tmp_path / "marginalpdbc.1"

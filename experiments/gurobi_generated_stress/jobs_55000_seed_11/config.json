@@ -1,0 +1,13 @@
+{
+  "contracted_power": 10000.0,
+  "renewable_price": 40.0,
+  "peak_price": 1000.0,
+  "delta_t": 0.25,
+  "pue": 1.2,
+  "battery_power_capacity": 0.0,
+  "battery_energy_capacity": 0.0,
+  "battery_initial_soc": 0.0,
+  "battery_final_soc": null,
+  "battery_charge_efficiency": 0.95,
+  "battery_discharge_efficiency": 0.95
+}

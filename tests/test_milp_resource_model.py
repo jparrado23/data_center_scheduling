@@ -251,13 +251,15 @@ def test_memory_over_capacity_is_allowed_when_memory_constraints_are_disabled():
     assert len(variables["x"]) > 0
 
 
-def test_resource_profile_still_enforces_category_allowlist():
+def test_resource_profile_ignores_category_allowlist():
     jobs_df = pd.DataFrame([_job("j1", category="inference", workload_family="inference")])
     clusters_df = _clusters().iloc[[0]].copy()
     clusters_df["compatible_categories"] = ["training"]
 
-    with pytest.raises(ValueError, match="jobs have no compatible cluster"):
-        build_milp_model(jobs_df, _hourly(), clusters_df, ModelConfig())
+    model, variables = build_milp_model(jobs_df, _hourly(), clusters_df, ModelConfig())
+    model.update()
+
+    assert len(variables["x"]) > 0
 
 
 def test_inference_reservation_treats_missing_values_as_false():
@@ -273,13 +275,13 @@ def test_inference_reservation_treats_missing_values_as_false():
     assert variable_clusters == {"cluster_g2"}
 
 
-def test_inference_reservation_accepts_legacy_inference_label():
+def test_inference_reservation_flag_is_ignored_by_resource_compatibility():
     jobs_df = pd.DataFrame(
         [
             _job(
                 "j1",
-                category="inference",
-                workload_family="inference",
+                category="training",
+                workload_family="training",
                 gpu_type_required="T4",
             )
         ]

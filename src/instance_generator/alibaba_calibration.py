@@ -12,6 +12,7 @@ import pandas as pd
 DEFAULT_RAW_DIR = Path("data/raw/alibaba_gpu_v2023")
 DEFAULT_OUTPUT_DIR = Path("experiments/outputs/alibaba_2023_eda")
 POD_TRACE_FILE = "openb_pod_list_gpuspec33.csv"
+GPU_NODE_TRACE_FILE = "openb_node_list_gpu_node.csv"
 SECONDS_PER_DAY = 24 * 60 * 60
 
 
@@ -49,6 +50,54 @@ def load_alibaba_pods(raw_dir: str | Path = DEFAULT_RAW_DIR) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Alibaba pod trace not found: {path}")
     return pd.read_csv(path)
+
+
+def load_alibaba_gpu_nodes(raw_dir: str | Path = DEFAULT_RAW_DIR) -> pd.DataFrame:
+    """Load the Alibaba GPU-node inventory used for cluster capacity calibration."""
+
+    path = Path(raw_dir) / GPU_NODE_TRACE_FILE
+    if not path.exists():
+        raise FileNotFoundError(f"Alibaba GPU-node trace not found: {path}")
+    return pd.read_csv(path)
+
+
+def summarize_gpu_type_cluster_capacity(nodes_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate Alibaba node inventory into one capacity row per GPU type."""
+
+    required = {"sn", "cpu_milli", "memory_mib", "gpu", "model"}
+    missing = required.difference(nodes_df.columns)
+    if missing:
+        raise ValueError(f"Alibaba GPU-node trace is missing columns: {sorted(missing)}")
+
+    nodes = nodes_df.copy()
+    nodes = nodes[nodes["model"].notna() & (nodes["model"].astype(str).str.strip() != "")]
+    nodes = nodes[nodes["gpu"].astype(float) > 0]
+    if nodes.empty:
+        raise ValueError("Alibaba GPU-node trace contains no GPU nodes")
+
+    nodes["gpu_type"] = nodes["model"].astype(str).str.strip()
+    nodes["gpu_count"] = nodes["gpu"].astype(int)
+    nodes["cpu_cores"] = nodes["cpu_milli"].astype(float) / 1000.0
+    nodes["memory_capacity_gb"] = nodes["memory_mib"].astype(float) / 1024.0
+
+    summary = (
+        nodes.groupby("gpu_type", dropna=False)
+        .agg(
+            nodes=("sn", "count"),
+            gpu_count=("gpu_count", "sum"),
+            cpu_capacity=("cpu_cores", "sum"),
+            memory_capacity_gb=("memory_capacity_gb", "sum"),
+            median_gpus_per_node=("gpu_count", "median"),
+            median_cpu_per_node=("cpu_cores", "median"),
+            median_memory_gb_per_node=("memory_capacity_gb", "median"),
+        )
+        .reset_index()
+        .sort_values("gpu_count", ascending=False)
+        .reset_index(drop=True)
+    )
+    summary["cpu_per_gpu"] = summary["cpu_capacity"] / summary["gpu_count"]
+    summary["memory_gb_per_gpu"] = summary["memory_capacity_gb"] / summary["gpu_count"]
+    return summary
 
 
 def prepare_alibaba_generator_samples(
@@ -164,6 +213,7 @@ def build_alibaba_generator_calibration(config: AlibabaCalibrationConfig) -> dic
     """Build and write generator calibration tables from local Alibaba traces."""
 
     pods = load_alibaba_pods(config.raw_dir)
+    gpu_nodes = load_alibaba_gpu_nodes(config.raw_dir)
     samples = prepare_alibaba_generator_samples(
         pods,
         max_runtime_hours=config.max_runtime_hours,
@@ -207,6 +257,7 @@ def build_alibaba_generator_calibration(config: AlibabaCalibrationConfig) -> dic
     ].quantile([0.1, 0.25, 0.5, 0.75, 0.9, 0.95]).reset_index(names="quantile")
 
     daily_jobs, jobs_per_24h = summarize_jobs_per_24h(pods, samples)
+    cluster_capacity = summarize_gpu_type_cluster_capacity(gpu_nodes)
 
     summary = pd.DataFrame(
         [
@@ -234,6 +285,7 @@ def build_alibaba_generator_calibration(config: AlibabaCalibrationConfig) -> dic
         "alibaba_gpu_count_distribution": gpu_count,
         "alibaba_resource_quantiles": resource_quantiles,
         "alibaba_jobs_per_24h": daily_jobs,
+        "alibaba_cluster_capacity_from_nodes": cluster_capacity,
         "alibaba_generator_calibration_summary": summary,
     }
     for name, frame in outputs.items():

@@ -62,22 +62,18 @@ def generate_toy_clusters() -> pd.DataFrame:
             {
                 "cluster_id": "cluster_a",
                 "capacity": 0.0104,
-                "compatible_categories": ["inference"],
             },
             {
                 "cluster_id": "cluster_b",
                 "capacity": 0.0935,
-                "compatible_categories": ["fine_tuning", "training", "preprocessing"],
             },
             {
                 "cluster_id": "cluster_c",
                 "capacity": 0.1248,
-                "compatible_categories": ["fine_tuning", "training", "preprocessing"],
             },
             {
                 "cluster_id": "cluster_d",
                 "capacity": 0.025,
-                "compatible_categories": ["fine_tuning", "preprocessing"],
             },
         ]
     )

@@ -93,7 +93,6 @@ def build_document_clusters(*, include_inference_zone: bool = False) -> pd.DataF
             "gpu_capacity": 120,
             "cpu_capacity": 960,
             "memory_capacity_gb": 3840,
-            "compatible_categories": "fine_tuning,training,preprocessing",
         },
         {
             "cluster_id": "cluster_c",
@@ -106,7 +105,6 @@ def build_document_clusters(*, include_inference_zone: bool = False) -> pd.DataF
             "gpu_capacity": 160,
             "cpu_capacity": 1280,
             "memory_capacity_gb": 7680,
-            "compatible_categories": "fine_tuning,training,preprocessing",
         },
         {
             "cluster_id": "cluster_d",
@@ -119,7 +117,6 @@ def build_document_clusters(*, include_inference_zone: bool = False) -> pd.DataF
             "gpu_capacity": 32,
             "cpu_capacity": 256,
             "memory_capacity_gb": 1536,
-            "compatible_categories": "fine_tuning,preprocessing",
         },
     ]
     if include_inference_zone:
@@ -137,7 +134,6 @@ def build_document_clusters(*, include_inference_zone: bool = False) -> pd.DataF
                     "cpu_capacity": 128,
                     "memory_capacity_gb": 512,
                     "reserved_for_online_inference": True,
-                    "compatible_categories": "inference",
                 },
         )
     clusters_df = pd.DataFrame(rows)
@@ -149,16 +145,18 @@ def build_alibaba_gpu_type_clusters(
     *,
     gpu_counts: dict[str, int] | None = None,
     gpu_power_kw: dict[str, float] | None = None,
+    cpu_capacity: dict[str, float] | None = None,
+    memory_capacity_gb: dict[str, float] | None = None,
     cpu_per_gpu: float = 8.0,
     memory_gb_per_gpu: float = 48.0,
     power_overhead_fraction: float = 0.0,
 ) -> pd.DataFrame:
     """Build one aggregate cluster per Alibaba GPU type.
 
-    GPU counts use the Alibaba trace summary. CPU, memory, and power are
-    configurable because they should be calibrated from EDA/business assumptions
-    before final experiments. Power is IT-side capacity in MW; PUE is applied
-    separately in the optimization.
+    GPU counts use the Alibaba trace summary. CPU and memory can be supplied as
+    per-GPU-type aggregate capacities from Alibaba node inventory; otherwise the
+    fallback per-GPU assumptions are used. Power is IT-side capacity in MW; PUE
+    is applied separately in the optimization.
     """
 
     counts = ALIBABA_GPU_TYPE_COUNTS if gpu_counts is None else gpu_counts
@@ -177,6 +175,16 @@ def build_alibaba_gpu_type_clusters(
         if gpu_type not in powers:
             raise ValueError(f"missing per-GPU power assumption for {gpu_type}")
         power_capacity_kw = float(gpu_count) * float(powers[gpu_type]) * (1.0 + power_overhead_fraction)
+        cluster_cpu_capacity = (
+            float(cpu_capacity[gpu_type])
+            if cpu_capacity is not None and gpu_type in cpu_capacity
+            else float(gpu_count) * float(cpu_per_gpu)
+        )
+        cluster_memory_capacity_gb = (
+            float(memory_capacity_gb[gpu_type])
+            if memory_capacity_gb is not None and gpu_type in memory_capacity_gb
+            else float(gpu_count) * float(memory_gb_per_gpu)
+        )
         rows.append(
             {
                 "cluster_id": f"cluster_{gpu_type.lower()}",
@@ -187,9 +195,8 @@ def build_alibaba_gpu_type_clusters(
                 "gpu_type": gpu_type,
                 "gpu_count": int(gpu_count),
                 "gpu_capacity": int(gpu_count),
-                "cpu_capacity": float(gpu_count) * float(cpu_per_gpu),
-                "memory_capacity_gb": float(gpu_count) * float(memory_gb_per_gpu),
-                "compatible_categories": "fine_tuning,training,preprocessing,batch_inference",
+                "cpu_capacity": cluster_cpu_capacity,
+                "memory_capacity_gb": cluster_memory_capacity_gb,
             }
         )
     clusters_df = pd.DataFrame(rows)

@@ -11,7 +11,8 @@ baseline, each compute partition represents one GPU type pool.
 
 ## Job Resource Profile
 
-Each schedulable job has a business label and an operational resource profile.
+Each schedulable job has a descriptive label and an operational resource
+profile.
 
 Business/reporting field:
 
@@ -25,11 +26,10 @@ Examples:
 training
 fine_tuning
 preprocessing
-inference
-online_inference
 ```
 
-The optimizer primarily uses the resource fields:
+These labels are for reporting and analysis only. The optimizer uses the
+resource fields:
 
 ```text
 gpu_type_required
@@ -73,6 +73,9 @@ reserved_for_online_inference
 compatible_categories
 ```
 
+`reserved_for_online_inference` and `compatible_categories` may appear in
+legacy files, but they are ignored by the active compatibility model.
+
 `capacity` is IT power capacity in MW. `power_capacity_kw` may be supplied by
 source data, but the MILP converts it to MW internally.
 
@@ -91,35 +94,33 @@ x[i,k,s] exists only if job i can run on partition k.
 
 Current compatibility checks:
 
-1. If the partition is reserved for online inference, only `inference` or
-   `online_inference` jobs can use it.
-2. If the job requires GPUs, the partition must have positive GPU capacity.
-3. The job GPU count must fit within the partition GPU capacity:
+1. If the job requires GPUs, the partition must have positive GPU capacity.
+2. The job GPU count must fit within the partition GPU capacity:
 
    ```text
    gpu_count_required <= gpu_capacity
    ```
 
-4. If the job specifies allowed GPU types, the partition GPU type must be one
+3. If the job specifies allowed GPU types, the partition GPU type must be one
    of them:
 
    ```text
    cluster.gpu_type in job.gpu_type_required
    ```
 
-5. If CPU constraints are enabled and requirements are present, they must fit:
+4. If CPU constraints are enabled and requirements are present, they must fit:
 
    ```text
    cpu_required <= cpu_capacity
    ```
 
-6. If memory constraints are enabled and requirements are present, they must fit:
+5. If memory constraints are enabled and requirements are present, they must fit:
 
    ```text
    memory_required_gb <= memory_capacity_gb
    ```
 
-7. If legacy `alpha_B`, `alpha_C`, or `alpha_D` columns are present, they are
+6. If legacy `alpha_B`, `alpha_C`, or `alpha_D` columns are present, they are
    treated as additional operational allow/deny rules for matching legacy
    clusters only.
 
@@ -161,15 +162,12 @@ disable the resource constraint.
 
 ## Relationship to Workload Labels
 
-`workload_family` and `category` are no longer the main feasibility mechanism.
-They are mainly useful for reporting, analysis, and business interpretation.
+`workload_family` and `category` are not a feasibility mechanism. They are only
+useful for reporting, analysis, and business interpretation.
 
 If business rules must forbid a job from a partition even when resources fit,
-encode that rule explicitly through:
-
-- `reserved_for_online_inference`,
-- legacy `alpha_*` columns,
-- or a future explicit operational-compatibility table.
+encode that rule through a future explicit operational-compatibility table. Do
+not reuse invented workload labels as compatibility constraints.
 
 ## Limitations
 

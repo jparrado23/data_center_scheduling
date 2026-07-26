@@ -44,19 +44,6 @@ def _normalize_gpu_types(value: Any) -> set[str]:
     return {item.strip() for item in str(value).split("|") if item.strip()}
 
 
-def _optional_bool(row: Any, column: str, default: bool = False) -> bool:
-    if not hasattr(row, column):
-        return default
-    value = getattr(row, column)
-    if _is_blank(value):
-        return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return str(value).strip().lower() in {"1", "true", "yes", "y"}
-
-
 def _job_lookup(jobs_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
     """Normalize the jobs table into a dictionary keyed by job identifier.
 
@@ -90,12 +77,6 @@ def _job_lookup(jobs_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
     return jobs
 
 
-def _normalize_categories(value: Any) -> set[str]:
-    if isinstance(value, str):
-        return {item.strip() for item in value.split(",") if item.strip()}
-    return {str(item) for item in value}
-
-
 def _cluster_lookup(clusters_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
     clusters: dict[str, dict[str, Any]] = {}
     for row in clusters_df.itertuples(index=False):
@@ -110,8 +91,6 @@ def _cluster_lookup(clusters_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
             "gpu_capacity": gpu_capacity,
             "cpu_capacity": _optional_float(row, "cpu_capacity", 0.0),
             "memory_capacity_gb": _optional_float(row, "memory_capacity_gb", 0.0),
-            "reserved_for_online_inference": _optional_bool(row, "reserved_for_online_inference", False),
-            "compatible_categories": _normalize_categories(getattr(row, "compatible_categories", "")),
         }
         clusters[str(row.cluster_id)] = cluster
     return clusters
@@ -152,16 +131,6 @@ def _has_resource_profile(jobs: dict[str, Any], cluster_data: dict[str, Any]) ->
     )
 
 
-def _category_allowed(job: dict[str, Any], cluster_profile: dict[str, Any]) -> bool:
-    if cluster_profile.get("reserved_for_online_inference", False) and job["workload_family"] in {
-        "online_inference",
-        "inference",
-    }:
-        return True
-    allowed_categories = cluster_profile.get("compatible_categories", set())
-    return not allowed_categories or job["category"] in allowed_categories
-
-
 def _is_compatible(
     job: dict[str, Any],
     cluster: str,
@@ -173,11 +142,7 @@ def _is_compatible(
     """Return compatibility using resource profiles when available."""
 
     cluster_profile = cluster_data[cluster]
-    if not _category_allowed(job, cluster_profile):
-        return 0
     if _has_resource_profile(job, cluster_profile):
-        if cluster_profile["reserved_for_online_inference"] and job["workload_family"] not in {"online_inference", "inference"}:
-            return 0
         if job["gpu_count_required"] > 0:
             if cluster_profile["gpu_capacity"] <= 0:
                 return 0
@@ -203,7 +168,7 @@ def _is_compatible(
         return 1
     if cluster in job:
         return int(job[cluster])
-    return int(job["category"] in cluster_data[cluster]["compatible_categories"])
+    return 1
 
 
 def build_milp_model(

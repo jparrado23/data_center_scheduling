@@ -34,27 +34,6 @@ def test_solved_toy_model_assigns_each_job_exactly_once():
     assert sorted(schedule["job_id"].tolist()) == sorted(jobs_df["job_id"].tolist())
 
 
-def test_solved_toy_model_respects_cluster_compatibility():
-    """Verify selected assignments obey job-category compatibility."""
-
-    jobs_df, hourly_df, clusters_df, config = generate_toy_dataset()
-    model, variables = build_milp_model(jobs_df, hourly_df, clusters_df, config)
-    model.Params.OutputFlag = 0
-
-    try:
-        solve_model(model)
-    except gp.GurobiError as exc:
-        pytest.skip(f"Gurobi is installed but not usable in this environment: {exc}")
-
-    schedule = extract_schedule(jobs_df, variables)
-    cluster_categories = {
-        row.cluster_id: set(row.compatible_categories) for row in clusters_df.itertuples(index=False)
-    }
-
-    for row in schedule.itertuples(index=False):
-        assert row.category in cluster_categories[row.assigned_cluster]
-
-
 def test_solved_toy_model_reports_baseline_and_curtailment():
     """Verify fixed baseline load and renewable curtailment flow to results."""
 

@@ -126,6 +126,8 @@ class SyntheticInstance:
 
 
 def _cluster_lookup(clusters_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """Convert cluster rows into dictionaries used by placement checks."""
+
     clusters: dict[str, dict[str, Any]] = {}
     for row in clusters_df.itertuples(index=False):
         gpu_capacity = int(row.gpu_count) if hasattr(row, "gpu_count") else int(row.gpu_capacity)
@@ -140,6 +142,8 @@ def _cluster_lookup(clusters_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
 
 
 def _load_alibaba_job_samples(calibration_dir: str | Path) -> pd.DataFrame:
+    """Load model-ready Alibaba job samples exported by the EDA calibration."""
+
     path = Path(calibration_dir) / ALIBABA_JOB_SAMPLES_FILE
     if not path.exists():
         raise FileNotFoundError(
@@ -163,6 +167,8 @@ def _load_alibaba_job_samples(calibration_dir: str | Path) -> pd.DataFrame:
 
 
 def _validate_calibration_slot_minutes(samples: pd.DataFrame, slot_minutes: int) -> None:
+    """Fail if Alibaba sampled durations were calibrated at a different slot size."""
+
     if "slot_minutes" not in samples.columns:
         raise ValueError(
             "Alibaba calibration samples do not include slot_minutes metadata; "
@@ -181,6 +187,8 @@ def _allowed_clusters_for_gpu_spec(
     clusters: list[str],
     cluster_data: dict[str, dict[str, Any]],
 ) -> list[str]:
+    """Return clusters whose GPU type satisfies a pipe-separated requirement."""
+
     if not gpu_type_required:
         return clusters
     allowed_types = {token.strip() for token in str(gpu_type_required).split("|") if token.strip()}
@@ -188,11 +196,15 @@ def _allowed_clusters_for_gpu_spec(
 
 
 def _cluster_power_per_gpu_kw(cluster: str, cluster_data: dict[str, dict[str, Any]]) -> float:
+    """Estimate per-GPU IT power from aggregate cluster power and GPU count."""
+
     gpu_capacity = max(cluster_data[cluster]["gpu_capacity"], 1)
     return cluster_data[cluster]["capacity"] * 1000.0 / gpu_capacity
 
 
 def _generate_slot_aware_hourly_inputs(horizon_slots: int, slot_minutes: int) -> pd.DataFrame:
+    """Build renewable and grid-price profiles for arbitrary slot granularity."""
+
     slots = np.arange(horizon_slots)
     time_hours = slots * slot_minutes / 60.0
     hour_of_day = time_hours % 24.0
@@ -211,6 +223,8 @@ def _generate_slot_aware_hourly_inputs(horizon_slots: int, slot_minutes: int) ->
 
 
 def _sample_category(compatible_count: int) -> str:
+    """Assign a descriptive workload label from compatibility breadth."""
+
     if compatible_count >= 3:
         return "preprocessing"
     if compatible_count == 2:
@@ -224,6 +238,8 @@ def _build_compatible_clusters(
     hidden_cluster: str,
     extra_probability: float,
 ) -> list[str]:
+    """Create a synthetic compatibility set around the hidden assigned cluster."""
+
     compatible = {hidden_cluster}
     for cluster in clusters:
         if cluster != hidden_cluster and rng.random() < extra_probability:
@@ -236,6 +252,8 @@ def _sample_job_profile(
     instance_config: SyntheticInstanceConfig,
     alibaba_samples: pd.DataFrame | None,
 ) -> dict[str, Any]:
+    """Sample one job profile from Alibaba calibration or parametric ranges."""
+
     if instance_config.sampling_mode == SAMPLING_MODE_ALIBABA:
         if alibaba_samples is None:
             raise ValueError("alibaba_samples must be provided when sampling_mode='alibaba'")
@@ -282,6 +300,8 @@ def _can_place(
     memory_used: dict[str, np.ndarray],
     cluster_data: dict[str, dict[str, Any]],
 ) -> bool:
+    """Check whether a job can be placed without exceeding active capacities."""
+
     stop = start + duration
     if np.any(power_used[cluster][start:stop] + power_mw > cluster_data[cluster]["capacity"] + 1e-12):
         return False
@@ -315,6 +335,8 @@ def _place_job(
     cluster_data: dict[str, dict[str, Any]],
     max_attempts: int,
 ) -> tuple[str, int]:
+    """Find one feasible hidden cluster and start slot for a generated job."""
+
     for _ in range(max_attempts):
         cluster = str(rng.choice(clusters))
         start = int(rng.integers(0, horizon_hours - duration + 1))
@@ -369,6 +391,8 @@ def _build_feasibility_report(
     gpu_used: dict[str, np.ndarray],
     delta_t: float,
 ) -> FeasibilityReport:
+    """Summarize workload demand against aggregate cluster capacity."""
+
     total_job_gpu_hours = float((jobs_df["gpus"] * jobs_df["duration"] * delta_t).sum())
     total_job_mwh = float((jobs_df["power"] * jobs_df["duration"] * delta_t).sum())
     gpu_capacity_column = "gpu_count" if "gpu_count" in clusters_df.columns else "gpu_capacity"
@@ -401,7 +425,13 @@ def generate_feasible_instance(
     *,
     clusters_df: pd.DataFrame | None = None,
 ) -> SyntheticInstance:
-    """Generate a MILP-ready synthetic instance with a known feasible schedule."""
+    """Generate MILP-ready inputs plus a hidden feasible reference schedule.
+
+    The function first constructs a schedule internally so the exported instance
+    is known to be feasible. It then hides the exact assignment by widening each
+    hidden start into an earliest/latest start window before returning the job,
+    hourly, cluster, and configuration tables used by the MILP.
+    """
 
     rng = np.random.default_rng(instance_config.seed)
     clusters_df = build_alibaba_gpu_type_clusters() if clusters_df is None else clusters_df.copy()
