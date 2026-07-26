@@ -933,8 +933,8 @@
               <td><span class="status defer">Defer</span></td>
             </tr>
             <tr>
-              <td>6. Quantum-compatible formulation</td>
-              <td>Reduced QUBO/PCE target with assignment, capacity penalties, and simplified energy terms.</td>
+              <td>6. Quantum and quantum-inspired methods</td>
+              <td>Reduced QUBO first, then QAOA, Pauli Correlation Encoding, quantum-inspired tensor networks, and hybrid decomposition on the same benchmark instances.</td>
               <td><span class="status next">After baseline validation</span></td>
             </tr>
           </tbody>
@@ -943,10 +943,60 @@
         <div class="warning callout">
           <strong>Quantum scope caution:</strong> the full MILP with continuous
           battery, energy split, PUE tranches, and peak variables should not be
-          the first QUBO target. The first quantum experiments should use a
-          reduced assignment/capacity/energy proxy model and compare decoded
-          schedules against MILP.
+          the first quantum target. The first experiments should use a reduced
+          assignment/capacity/energy proxy model and compare decoded schedules
+          against MILP.
         </div>
+
+        <h3>Quantum and Quantum-Inspired Evaluation Plan</h3>
+        <p>
+          The quantum track will not be limited to one QUBO implementation. The
+          plan is to use the same small, constrained benchmark instances and
+          compare several alternative encodings or solvers against the MILP
+          reference.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Approach</th>
+              <th>Role in the Thesis</th>
+              <th>First Test Scope</th>
+              <th>Main Risk</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>QUBO / Ising</td>
+              <td>Baseline quantum-ready formulation.</td>
+              <td>Assignment, compatibility, capacity penalties, and simplified energy/peak proxy.</td>
+              <td>Penalty calibration and variable count.</td>
+            </tr>
+            <tr>
+              <td>QAOA</td>
+              <td>Gate-based quantum algorithm applied to the reduced Ising/QUBO model.</td>
+              <td>Tiny instances where exact brute force or MILP optimum is known.</td>
+              <td>Circuit depth, noise, and optimizer instability.</td>
+            </tr>
+            <tr>
+              <td>Pauli Correlation Encoding</td>
+              <td>Alternative encoding that may represent many binary variables with fewer qubits.</td>
+              <td>Reduced scheduling QUBO with strict decoded-feasibility checks.</td>
+              <td>Constraint satisfaction after decoding; likely needs iterative-alpha PCE.</td>
+            </tr>
+            <tr>
+              <td>Quantum-inspired tensor networks</td>
+              <td>Classical tensor-network method to exploit structure in the QUBO/Ising interaction graph.</td>
+              <td>Small and medium constrained benchmark instances before hardware tests.</td>
+              <td>Performance depends on interaction graph structure and bond dimension.</td>
+            </tr>
+            <tr>
+              <td>Hybrid decomposition</td>
+              <td>Use classical optimization for the full problem and quantum/quantum-inspired solvers for hard subproblems.</td>
+              <td>Rolling windows, selected jobs, or overloaded cheap-energy intervals.</td>
+              <td>Choosing subproblems whose solutions improve the global schedule.</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section id="decisions">
@@ -958,7 +1008,7 @@
           <li>What data source should calibrate thermal PUE and renewable profiles?</li>
           <li>Do business requirements include soft-deadline jobs, or are all deadlines hard?</li>
           <li>Should load-dependent PUE be part of the thesis core or framed as an advanced extension?</li>
-          <li>For quantum computing, should the first target be reduced QUBO, QAOA, PCE, or hybrid decomposition?</li>
+          <li>For quantum computing, which benchmark ladder should be shared across QUBO, QAOA, PCE, tensor networks, and hybrid methods?</li>
           <li>How should dynamic scheduling be evaluated: rolling horizon, event-triggered re-optimization, or static benchmarks only?</li>
         </ol>
       </section>
