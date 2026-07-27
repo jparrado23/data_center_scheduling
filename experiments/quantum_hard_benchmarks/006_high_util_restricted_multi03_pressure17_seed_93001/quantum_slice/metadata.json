@@ -1,0 +1,16 @@
+{
+  "source_instance": "006_high_util_restricted_multi03_pressure17_seed_93001",
+  "quantum_jobs": 2,
+  "qubo_variables": 17,
+  "qubo_offset": 400.0,
+  "penalty_weights": {
+    "assignment": 200.0,
+    "power_capacity": 80.0,
+    "gpu_capacity": 80.0,
+    "cpu_capacity": 30.0,
+    "memory_capacity": 30.0,
+    "peak_smoothing": 1.0
+  },
+  "qaoa_qubits_required": 17,
+  "pce_qubits_demo": 5
+}

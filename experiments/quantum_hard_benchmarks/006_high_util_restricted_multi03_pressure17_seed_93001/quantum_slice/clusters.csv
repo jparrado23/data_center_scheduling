@@ -1,0 +1,5 @@
+cluster_id,cluster_role,capacity_kw,capacity,power_capacity_kw,gpu_type,gpu_count,gpu_capacity,cpu_capacity,memory_capacity_gb
+cluster_g2,small_gpu_type_pool,1.4,0.0014,1.4,G2,4,4,32.0,192.0
+cluster_t4,small_gpu_type_pool,0.28,0.00028,0.28,T4,4,4,32.0,192.0
+cluster_v100m32,small_gpu_type_pool,0.5,0.0005,0.5,V100M32,2,2,16.0,96.0
+cluster_p100,small_gpu_type_pool,0.5,0.0005,0.5,P100,2,2,16.0,96.0

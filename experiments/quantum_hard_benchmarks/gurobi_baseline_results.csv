@@ -1,0 +1,2 @@
+instance_name,status,has_solution,runtime_s,wall_s,num_vars,num_constraints,assignment_vars,solve_error
+006_high_util_restricted_multi03_pressure17_seed_93001,9,False,60.12819194793701,60.12837290763855,1767,381,1733,Gurobi finished with status 9 and no feasible solution
