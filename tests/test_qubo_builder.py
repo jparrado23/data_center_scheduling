@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import ModelConfig
-from src.quantum.qubo_builder import build_scheduling_qubo, decode_qubo_sample, validate_decoded_schedule
+from src.quantum.qubo_builder import build_scheduling_qubo, decode_qubo_sample, qubo_energy, validate_decoded_schedule
 
 
 def _jobs() -> pd.DataFrame:
@@ -65,8 +65,10 @@ def _clusters() -> pd.DataFrame:
 def test_build_scheduling_qubo_creates_assignment_variables():
     qubo = build_scheduling_qubo(_jobs(), _hourly(), _clusters(), ModelConfig(delta_t=1.0))
 
-    assert qubo.num_variables == 4
-    assert len(qubo.linear) == 4
+    assert qubo.metadata["num_assignment_variables"] == 4
+    assert qubo.metadata["num_slack_variables"] == 4
+    assert qubo.num_variables == 8
+    assert len(qubo.linear) == 8
     assert qubo.metadata["num_quadratic_terms"] > 0
 
 
@@ -74,7 +76,10 @@ def test_decode_and_validate_feasible_qubo_sample():
     qubo = build_scheduling_qubo(_jobs(), _hourly(), _clusters(), ModelConfig(delta_t=1.0))
     sample = np.zeros(qubo.num_variables, dtype=int)
     for index, variable in enumerate(qubo.variables):
-        if (variable["job_id"], variable["start"]) in {("j1", 0), ("j2", 1)}:
+        if variable.get("variable_type") == "assignment" and (variable["job_id"], variable["start"]) in {
+            ("j1", 0),
+            ("j2", 1),
+        }:
             sample[index] = 1
 
     schedule = decode_qubo_sample(qubo, sample)
@@ -82,6 +87,24 @@ def test_decode_and_validate_feasible_qubo_sample():
 
     assert report["feasible"] is True
     assert len(schedule) == 2
+
+
+def test_gpu_slack_bits_reduce_capacity_penalty():
+    qubo = build_scheduling_qubo(_jobs(), _hourly(), _clusters(), ModelConfig(delta_t=1.0))
+    sample = np.zeros(qubo.num_variables, dtype=int)
+    for index, variable in enumerate(qubo.variables):
+        if variable.get("variable_type") == "assignment" and (variable["job_id"], variable["start"]) in {
+            ("j1", 0),
+            ("j2", 1),
+        }:
+            sample[index] = 1
+
+    missing_slack_energy = qubo_energy(qubo, sample)
+    for index, variable in enumerate(qubo.variables):
+        if variable.get("variable_type") == "gpu_slack" and variable["bit"] == 0:
+            sample[index] = 1
+
+    assert qubo_energy(qubo, sample) < missing_slack_energy
 
 
 def test_validate_decoded_schedule_catches_missing_assignment():

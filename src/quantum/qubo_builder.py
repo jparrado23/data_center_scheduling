@@ -26,10 +26,7 @@ class QuboPenaltyWeights:
     """Penalty and proxy weights used by the reduced scheduling QUBO."""
 
     assignment: float = 100.0
-    power_capacity: float = 50.0
     gpu_capacity: float = 50.0
-    cpu_capacity: float = 20.0
-    memory_capacity: float = 20.0
     peak_smoothing: float = 1.0
 
 
@@ -109,7 +106,11 @@ def _linear_energy_cost(
     hourly_lookup: dict[int, dict[str, float]],
     config: ModelConfig,
 ) -> float:
-    """Approximate MILP energy dispatch with a time-varying effective price."""
+    """Return the fixed-PUE linear energy coefficient for one assignment.
+
+    The reduced QUBO does not decide renewable/grid dispatch explicitly. It uses
+    an effective time price and multiplies IT load by fixed or exogenous PUE.
+    """
 
     cost = 0.0
     for hour in hourly_lookup:
@@ -117,16 +118,101 @@ def _linear_energy_cost(
             continue
         grid_price = hourly_lookup[hour]["grid_price"]
         renewable_available = hourly_lookup[hour]["renewable_available"]
+        pue = hourly_lookup[hour]["pue"]
         effective_price = min(grid_price, config.renewable_price) if renewable_available > 0 else grid_price
-        cost += effective_price * config.pue * float(variable["power"]) * config.delta_t
+        cost += effective_price * pue * float(variable["power"]) * config.delta_t
     return float(cost)
+
+
+def build_hourly_lookup(hourly_df: pd.DataFrame, config: ModelConfig) -> dict[int, dict[str, float]]:
+    """Build the time-slot coefficient lookup used by the reduced QUBO."""
+
+    return {
+        int(row.hour): {
+            "grid_price": float(row.grid_price),
+            "renewable_available": float(row.renewable_available),
+            "pue": float(getattr(row, "pue", config.pue)),
+        }
+        for row in hourly_df.itertuples(index=False)
+    }
+
+
+def add_assignment_variables(
+    qubo: SchedulingQubo,
+    jobs_df: pd.DataFrame,
+    clusters_df: pd.DataFrame,
+    feasible_starts: dict[str, list[int]] | None = None,
+) -> None:
+    """Create one binary variable for each feasible ``(job, cluster, start)`` option."""
+
+    starts_by_job = feasible_starts or build_feasible_starts(jobs_df)
+    for job in jobs_df.itertuples(index=False):
+        job_series = pd.Series(job._asdict())
+        for cluster in clusters_df.itertuples(index=False):
+            cluster_series = pd.Series(cluster._asdict())
+            if not _compatible(job_series, cluster_series):
+                continue
+            for start in starts_by_job[str(job.job_id)]:
+                qubo.variables.append(
+                    {
+                        "variable_type": "assignment",
+                        "job_id": str(job.job_id),
+                        "cluster": str(cluster.cluster_id),
+                        "start": int(start),
+                        "duration": int(job.duration),
+                        "power": float(job.power),
+                        "gpu_count_required": float(getattr(job, "gpu_count_required", getattr(job, "gpus", 0.0))),
+                        "cpu_required": float(getattr(job, "cpu_required", 0.0)),
+                        "memory_required_gb": float(getattr(job, "memory_required_gb", 0.0)),
+                    }
+                )
+
+
+def add_fixed_pue_energy_cost(
+    qubo: SchedulingQubo,
+    hourly_lookup: dict[int, dict[str, float]],
+    config: ModelConfig,
+) -> None:
+    """Add ``H_energy`` with fixed or exogenous PUE as linear QUBO coefficients."""
+
+    for index in _assignment_indices(qubo):
+        _add_linear(qubo, index, _linear_energy_cost(qubo.variables[index], hourly_lookup, config))
+
+
+def add_assignment_constraint_penalty(qubo: SchedulingQubo, weight: float) -> None:
+    """Add the exact one-hot assignment penalty for every job."""
+
+    _add_assignment_penalties(qubo, QuboPenaltyWeights(assignment=weight))
+
+
+def add_gpu_capacity_constraint_penalty(
+    qubo: SchedulingQubo,
+    clusters_df: pd.DataFrame,
+    hours: list[int],
+    weight: float,
+) -> None:
+    """Add exact GPU capacity penalties using binary slack variables."""
+
+    _add_gpu_capacity_penalties_with_slack(qubo, clusters_df, hours, weight)
+
+
+def add_fixed_pue_peak_penalty(
+    qubo: SchedulingQubo,
+    hours: list[int],
+    hourly_lookup: dict[int, dict[str, float]],
+    weight: float,
+) -> None:
+    """Add the fixed-PUE squared facility-load peak proxy."""
+
+    _add_peak_smoothing_proxy(qubo, hours, hourly_lookup, weight)
 
 
 def _add_assignment_penalties(qubo: SchedulingQubo, weights: QuboPenaltyWeights) -> None:
     """Add exact one-hot assignment penalties for each job."""
 
     by_job: dict[str, list[int]] = {}
-    for index, variable in enumerate(qubo.variables):
+    for index in _assignment_indices(qubo):
+        variable = qubo.variables[index]
         by_job.setdefault(str(variable["job_id"]), []).append(index)
 
     for indices in by_job.values():
@@ -138,11 +224,18 @@ def _add_assignment_penalties(qubo: SchedulingQubo, weights: QuboPenaltyWeights)
                 _add_quadratic(qubo, left, right, 2.0 * weights.assignment)
 
 
-def _active_variables_by_cluster_hour(qubo: SchedulingQubo, hours: list[int]) -> dict[tuple[str, int], list[int]]:
+def _assignment_indices(qubo: SchedulingQubo) -> list[int]:
+    """Return indices for assignment variables only."""
+
+    return [index for index, variable in enumerate(qubo.variables) if variable.get("variable_type") == "assignment"]
+
+
+def _active_assignments_by_cluster_hour(qubo: SchedulingQubo, hours: list[int]) -> dict[tuple[str, int], list[int]]:
     """Index variables by cluster and active hour."""
 
     active: dict[tuple[str, int], list[int]] = {}
-    for index, variable in enumerate(qubo.variables):
+    for index in _assignment_indices(qubo):
+        variable = qubo.variables[index]
         cluster = str(variable["cluster"])
         for hour in hours:
             if _variable_activity(variable, hour):
@@ -150,80 +243,95 @@ def _active_variables_by_cluster_hour(qubo: SchedulingQubo, hours: list[int]) ->
     return active
 
 
-def _add_pairwise_capacity_pressure(
+def _add_squared_equality_penalty(
     qubo: SchedulingQubo,
-    indices: list[int],
-    coefficients: dict[int, float],
-    capacity: float,
+    terms: dict[int, float],
+    rhs: float,
     weight: float,
 ) -> None:
-    """Add pairwise resource-contention pressure for a capacity constraint.
+    """Add ``weight * (sum_i terms_i z_i - rhs)^2`` to the QUBO."""
 
-    A direct ``(load - capacity)^2`` term is a poor inequality proxy because it
-    rewards filling otherwise idle capacity. This pairwise term only adds cost
-    when active variables compete for the same resource in the same slot.
-    Exact feasibility is still checked after decoding.
-    """
-
-    if capacity <= 0:
+    if weight <= 0:
         return
+    qubo.offset += weight * rhs * rhs
+    indices = list(terms)
+    for index, coefficient in terms.items():
+        _add_linear(qubo, index, weight * (coefficient * coefficient - 2.0 * rhs * coefficient))
     for left_position, left in enumerate(indices):
         for right in indices[left_position + 1 :]:
-            combined = coefficients[left] + coefficients[right]
-            normalized_pressure = coefficients[left] * coefficients[right] / (capacity * capacity)
-            overload_pressure = max(0.0, combined - capacity) ** 2 / (capacity * capacity)
-            _add_quadratic(qubo, left, right, weight * (normalized_pressure + overload_pressure))
+            _add_quadratic(qubo, left, right, 2.0 * weight * terms[left] * terms[right])
 
 
-def _add_resource_capacity_proxies(
+def _cluster_gpu_capacity(cluster: pd.Series | dict[str, Any]) -> int:
+    """Return aggregate GPU capacity for a cluster row."""
+
+    return int(cluster.get("gpu_count", cluster.get("gpu_capacity", 0)))
+
+
+def _add_gpu_capacity_penalties_with_slack(
     qubo: SchedulingQubo,
     clusters_df: pd.DataFrame,
     hours: list[int],
-    weights: QuboPenaltyWeights,
+    weight: float,
 ) -> None:
-    """Add soft squared-capacity proxies for cluster resources.
+    """Add exact GPU capacity penalties using binary unused-GPU slack.
 
-    These terms guide the quantum optimizer away from overloads, but feasibility
-    must still be checked after decoding because inequality constraints are only
-    approximated here.
+    For every cluster and time slot, the inequality
+    ``D_gpu[k,t] <= G[k]`` is converted to
+    ``D_gpu[k,t] + slack[k,t] = G[k]``. The slack is binary encoded, so a zero
+    penalty exists exactly when GPU usage does not exceed capacity.
     """
 
+    if weight <= 0:
+        return
     cluster_lookup = clusters_df.set_index("cluster_id").to_dict(orient="index")
-    active = _active_variables_by_cluster_hour(qubo, hours)
-    specs = [
-        ("power", "capacity", weights.power_capacity),
-        ("gpu_count_required", "gpu_count", weights.gpu_capacity),
-        ("cpu_required", "cpu_capacity", weights.cpu_capacity),
-        ("memory_required_gb", "memory_capacity_gb", weights.memory_capacity),
-    ]
-    for (cluster, hour), indices in active.items():
-        cluster_data = cluster_lookup[cluster]
-        for variable_field, capacity_field, weight in specs:
-            capacity = float(cluster_data.get(capacity_field, 0.0))
-            if capacity <= 0 or weight <= 0:
+    active = _active_assignments_by_cluster_hour(qubo, hours)
+    for cluster_id, cluster_data in cluster_lookup.items():
+        capacity = _cluster_gpu_capacity(cluster_data)
+        if capacity < 0:
+            raise ValueError(f"cluster {cluster_id} has negative GPU capacity")
+        bit_count = int(np.ceil(np.log2(capacity + 1))) if capacity > 0 else 1
+        for hour in hours:
+            active_indices = active.get((str(cluster_id), hour), [])
+            if not active_indices:
                 continue
-            coefficients = {index: float(qubo.variables[index].get(variable_field, 0.0)) for index in indices}
-            if any(value > 0 for value in coefficients.values()):
-                _add_pairwise_capacity_pressure(qubo, indices, coefficients, capacity, weight)
+            terms: dict[int, float] = {
+                index: float(qubo.variables[index]["gpu_count_required"])
+                for index in active_indices
+            }
+            for bit in range(bit_count):
+                slack_index = len(qubo.variables)
+                coefficient = float(2**bit)
+                qubo.variables.append(
+                    {
+                        "variable_type": "gpu_slack",
+                        "cluster": str(cluster_id),
+                        "hour": int(hour),
+                        "bit": int(bit),
+                        "coefficient": coefficient,
+                    }
+                )
+                terms[slack_index] = coefficient
+            _add_squared_equality_penalty(qubo, terms, rhs=float(capacity), weight=weight)
 
 
 def _add_peak_smoothing_proxy(
     qubo: SchedulingQubo,
     hours: list[int],
+    hourly_lookup: dict[int, dict[str, float]],
     weight: float,
 ) -> None:
-    """Add a quadratic load-smoothing proxy over facility IT power."""
+    """Add the fixed-PUE squared facility-load proxy."""
 
     if weight <= 0:
         return
     for hour in hours:
-        indices = [index for index, variable in enumerate(qubo.variables) if _variable_activity(variable, hour)]
-        coefficients = {index: float(qubo.variables[index]["power"]) for index in indices}
-        for index in indices:
-            _add_linear(qubo, index, weight * coefficients[index] * coefficients[index])
-        for left_position, left in enumerate(indices):
-            for right in indices[left_position + 1 :]:
-                _add_quadratic(qubo, left, right, 2.0 * weight * coefficients[left] * coefficients[right])
+        indices = [index for index in _assignment_indices(qubo) if _variable_activity(qubo.variables[index], hour)]
+        if not indices:
+            continue
+        pue = float(hourly_lookup[hour]["pue"])
+        terms = {index: pue * float(qubo.variables[index]["power"]) for index in indices}
+        _add_squared_equality_penalty(qubo, terms, rhs=0.0, weight=weight)
 
 
 def build_scheduling_qubo(
@@ -233,7 +341,18 @@ def build_scheduling_qubo(
     config: ModelConfig,
     weights: QuboPenaltyWeights | None = None,
 ) -> SchedulingQubo:
-    """Build a reduced scheduling QUBO from model-ready instance tables."""
+    """Build the reduced scheduling QUBO from model-ready instance tables.
+
+    The implemented Hamiltonian is:
+
+    ``H = H_energy_fixed_pue + H_assignment + H_gpu_slack + H_peak_fixed_pue``.
+
+    Compatibility is handled by omitting infeasible assignment variables. GPU
+    capacity is encoded exactly with binary unused-GPU slack. CPU, memory,
+    renewable/grid dispatch, exact contracted peak billing, and battery dynamics
+    remain outside this first reduced QUBO and should be checked or modeled
+    separately.
+    """
 
     validate_jobs(jobs_df)
     validate_hourly_inputs(hourly_df)
@@ -242,39 +361,44 @@ def build_scheduling_qubo(
     penalty_weights = weights or QuboPenaltyWeights()
     feasible_starts = build_feasible_starts(jobs_df)
     hours = [int(hour) for hour in hourly_df["hour"].tolist()]
-    hourly_lookup = {
-        int(row.hour): {
-            "grid_price": float(row.grid_price),
-            "renewable_available": float(row.renewable_available),
+    hourly_lookup = build_hourly_lookup(hourly_df, config)
+
+    qubo = SchedulingQubo(
+        metadata={
+            "formulation": "fixed_pue_assignment_gpu_slack_energy_peak_qubo",
+            "weights": penalty_weights.__dict__.copy(),
+            "hours": hours,
+            "terms": {},
         }
-        for row in hourly_df.itertuples(index=False)
+    )
+    add_assignment_variables(qubo, jobs_df, clusters_df, feasible_starts)
+    add_fixed_pue_energy_cost(qubo, hourly_lookup, config)
+
+    qubo.metadata["terms"]["energy_fixed_pue"] = {
+        "linear_terms_after_term": len(qubo.linear),
+        "quadratic_terms_after_term": len(qubo.quadratic),
+        "description": "Linear fixed-PUE energy cost using effective time price.",
     }
-
-    qubo = SchedulingQubo(metadata={"weights": penalty_weights.__dict__.copy(), "hours": hours})
-    for job in jobs_df.itertuples(index=False):
-        job_series = pd.Series(job._asdict())
-        for cluster in clusters_df.itertuples(index=False):
-            cluster_series = pd.Series(cluster._asdict())
-            if not _compatible(job_series, cluster_series):
-                continue
-            for start in feasible_starts[str(job.job_id)]:
-                variable = {
-                    "job_id": str(job.job_id),
-                    "cluster": str(cluster.cluster_id),
-                    "start": int(start),
-                    "duration": int(job.duration),
-                    "power": float(job.power),
-                    "gpu_count_required": float(getattr(job, "gpu_count_required", getattr(job, "gpus", 0.0))),
-                    "cpu_required": float(getattr(job, "cpu_required", 0.0)),
-                    "memory_required_gb": float(getattr(job, "memory_required_gb", 0.0)),
-                }
-                index = len(qubo.variables)
-                qubo.variables.append(variable)
-                _add_linear(qubo, index, _linear_energy_cost(variable, hourly_lookup, config))
-
-    _add_assignment_penalties(qubo, penalty_weights)
-    _add_resource_capacity_proxies(qubo, clusters_df, hours, penalty_weights)
-    _add_peak_smoothing_proxy(qubo, hours, penalty_weights.peak_smoothing)
+    add_assignment_constraint_penalty(qubo, penalty_weights.assignment)
+    qubo.metadata["terms"]["assignment"] = {
+        "linear_terms_after_term": len(qubo.linear),
+        "quadratic_terms_after_term": len(qubo.quadratic),
+        "description": "Exact one-hot job assignment penalty.",
+    }
+    add_gpu_capacity_constraint_penalty(qubo, clusters_df, hours, penalty_weights.gpu_capacity)
+    qubo.metadata["terms"]["gpu_capacity_with_slack"] = {
+        "linear_terms_after_term": len(qubo.linear),
+        "quadratic_terms_after_term": len(qubo.quadratic),
+        "description": "Exact GPU capacity penalty using binary unused-GPU slack per cluster and time.",
+    }
+    add_fixed_pue_peak_penalty(qubo, hours, hourly_lookup, penalty_weights.peak_smoothing)
+    qubo.metadata["terms"]["peak_fixed_pue"] = {
+        "linear_terms_after_term": len(qubo.linear),
+        "quadratic_terms_after_term": len(qubo.quadratic),
+        "description": "Quadratic fixed-PUE facility-load smoothing proxy.",
+    }
+    qubo.metadata["num_assignment_variables"] = len(_assignment_indices(qubo))
+    qubo.metadata["num_slack_variables"] = qubo.num_variables - qubo.metadata["num_assignment_variables"]
     qubo.metadata["num_linear_terms"] = len(qubo.linear)
     qubo.metadata["num_quadratic_terms"] = len(qubo.quadratic)
     return qubo
@@ -295,6 +419,22 @@ def qubo_energy(qubo: SchedulingQubo, sample: dict[int, int] | list[int] | np.nd
     return float(energy)
 
 
+def to_dimod_bqm(qubo: SchedulingQubo):
+    """Convert a ``SchedulingQubo`` into a D-Wave Ocean binary quadratic model."""
+
+    try:
+        import dimod
+    except ImportError as exc:  # pragma: no cover - depends on optional Ocean install
+        raise ImportError("Install D-Wave Ocean's 'dimod' package to build a BinaryQuadraticModel") from exc
+
+    bqm = dimod.BinaryQuadraticModel({}, {}, qubo.offset, dimod.BINARY)
+    for index, coefficient in qubo.linear.items():
+        bqm.add_variable(index, coefficient)
+    for (left, right), coefficient in qubo.quadratic.items():
+        bqm.add_interaction(left, right, coefficient)
+    return bqm
+
+
 def decode_qubo_sample(qubo: SchedulingQubo, sample: dict[int, int] | list[int] | np.ndarray) -> pd.DataFrame:
     """Decode selected QUBO variables into a schedule dataframe."""
 
@@ -305,6 +445,8 @@ def decode_qubo_sample(qubo: SchedulingQubo, sample: dict[int, int] | list[int] 
     rows = []
     for index in selected:
         variable = qubo.variables[index]
+        if variable.get("variable_type") != "assignment":
+            continue
         rows.append(
             {
                 "job_id": variable["job_id"],
@@ -371,7 +513,6 @@ def validate_decoded_schedule(
 
     for cluster_id, cluster in clusters.iterrows():
         capacities = {
-            "power": float(cluster.capacity),
             "gpu": float(cluster.get("gpu_count", cluster.get("gpu_capacity", 0.0))),
             "cpu": float(cluster.get("cpu_capacity", 0.0)),
             "memory": float(cluster.get("memory_capacity_gb", 0.0)),
