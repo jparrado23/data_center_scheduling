@@ -62,6 +62,31 @@ def _clusters() -> pd.DataFrame:
     )
 
 
+def _two_clusters() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "cluster_id": "cluster_t4",
+                "capacity": 0.02,
+                "gpu_type": "T4",
+                "gpu_count": 2,
+                "gpu_capacity": 2,
+                "cpu_capacity": 4.0,
+                "memory_capacity_gb": 16.0,
+            },
+            {
+                "cluster_id": "cluster_v100",
+                "capacity": 0.02,
+                "gpu_type": "V100",
+                "gpu_count": 2,
+                "gpu_capacity": 2,
+                "cpu_capacity": 4.0,
+                "memory_capacity_gb": 16.0,
+            },
+        ]
+    )
+
+
 def test_build_scheduling_qubo_creates_assignment_variables():
     qubo = build_scheduling_qubo(_jobs(), _hourly(), _clusters(), ModelConfig(delta_t=1.0))
 
@@ -70,6 +95,19 @@ def test_build_scheduling_qubo_creates_assignment_variables():
     assert qubo.num_variables == 8
     assert len(qubo.linear) == 8
     assert qubo.metadata["num_quadratic_terms"] > 0
+
+
+def test_explicit_compatible_clusters_restrict_assignment_variables():
+    jobs = _jobs().copy()
+    jobs["gpu_type_required"] = ""
+    jobs["compatible_clusters"] = [["cluster_t4"], ["cluster_v100"]]
+
+    qubo = build_scheduling_qubo(jobs, _hourly(), _two_clusters(), ModelConfig(delta_t=1.0))
+    assignment_variables = [var for var in qubo.variables if var.get("variable_type") == "assignment"]
+
+    assert qubo.metadata["num_assignment_variables"] == 4
+    assert {var["cluster"] for var in assignment_variables if var["job_id"] == "j1"} == {"cluster_t4"}
+    assert {var["cluster"] for var in assignment_variables if var["job_id"] == "j2"} == {"cluster_v100"}
 
 
 def test_decode_and_validate_feasible_qubo_sample():

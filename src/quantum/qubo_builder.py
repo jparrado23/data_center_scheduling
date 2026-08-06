@@ -61,6 +61,16 @@ def _normalize_gpu_types(value: Any) -> set[str]:
     return {token.strip() for token in str(value).split("|") if token.strip()}
 
 
+def _normalize_cluster_ids(value: Any) -> set[str]:
+    """Parse an explicit job-to-cluster compatibility field."""
+
+    if isinstance(value, (list, tuple, set)):
+        return {str(token).strip() for token in value if str(token).strip()}
+    if _is_blank(value):
+        return set()
+    return {token.strip() for token in str(value).split("|") if token.strip()}
+
+
 def _add_linear(qubo: SchedulingQubo, variable: int, coefficient: float) -> None:
     """Accumulate one linear QUBO coefficient."""
 
@@ -80,10 +90,17 @@ def _add_quadratic(qubo: SchedulingQubo, left: int, right: int, coefficient: flo
 
 
 def _compatible(job: pd.Series, cluster: pd.Series) -> bool:
-    """Return whether a job can run on a cluster under GPU-type/count metadata."""
+    """Return whether a job can run on a cluster.
+
+    Prefer an explicit ``compatible_clusters`` relation when present. GPU-type
+    metadata remains supported as a preprocessing fallback for older instances.
+    """
 
     gpu_count = int(job.get("gpu_count_required", job.get("gpus", 0)))
     if gpu_count > int(cluster.get("gpu_count", cluster.get("gpu_capacity", 0))):
+        return False
+    compatible_clusters = _normalize_cluster_ids(job.get("compatible_clusters", ""))
+    if compatible_clusters and str(cluster.get("cluster_id", "")).strip() not in compatible_clusters:
         return False
     required_gpu_types = _normalize_gpu_types(job.get("gpu_type_required", ""))
     if required_gpu_types and str(cluster.get("gpu_type", "")).strip() not in required_gpu_types:
