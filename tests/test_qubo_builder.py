@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 
 from src.config import ModelConfig
-from src.quantum.qubo_builder import build_scheduling_qubo, decode_qubo_sample, qubo_energy, validate_decoded_schedule
+from src.quantum.qubo_builder import (
+    QuboPenaltyWeights,
+    build_scheduling_qubo,
+    decode_qubo_sample,
+    qubo_energy,
+    validate_decoded_schedule,
+)
 
 
 def _jobs() -> pd.DataFrame:
@@ -108,6 +114,89 @@ def test_explicit_compatible_clusters_restrict_assignment_variables():
     assert qubo.metadata["num_assignment_variables"] == 4
     assert {var["cluster"] for var in assignment_variables if var["job_id"] == "j1"} == {"cluster_t4"}
     assert {var["cluster"] for var in assignment_variables if var["job_id"] == "j2"} == {"cluster_v100"}
+
+
+def test_explicit_compatible_clusters_override_stale_gpu_type_metadata():
+    jobs = _jobs().copy()
+    jobs["gpu_type_required"] = ["V100", "T4"]
+    jobs["compatible_clusters"] = [["cluster_t4"], ["cluster_v100"]]
+
+    qubo = build_scheduling_qubo(jobs, _hourly(), _two_clusters(), ModelConfig(delta_t=1.0))
+    assignment_variables = [var for var in qubo.variables if var.get("variable_type") == "assignment"]
+
+    assert qubo.metadata["num_assignment_variables"] == 4
+    assert {var["cluster"] for var in assignment_variables if var["job_id"] == "j1"} == {"cluster_t4"}
+    assert {var["cluster"] for var in assignment_variables if var["job_id"] == "j2"} == {"cluster_v100"}
+
+
+def test_notebook_tiny_fixed_pue_qubo_structure_matches_builder():
+    jobs = pd.DataFrame(
+        [
+            {
+                "job_id": "j1",
+                "category": "gpu",
+                "duration": 1,
+                "power": 0.010,
+                "earliest_start": 0,
+                "latest_start": 1,
+                "gpu_count_required": 1,
+                "cpu_required": 0.0,
+                "memory_required_gb": 0.0,
+                "compatible_clusters": ["c_t4"],
+            },
+            {
+                "job_id": "j2",
+                "category": "gpu",
+                "duration": 1,
+                "power": 0.015,
+                "earliest_start": 0,
+                "latest_start": 2,
+                "gpu_count_required": 1,
+                "cpu_required": 0.0,
+                "memory_required_gb": 0.0,
+                "compatible_clusters": ["c_t4"],
+            },
+            {
+                "job_id": "j3",
+                "category": "gpu",
+                "duration": 1,
+                "power": 0.008,
+                "earliest_start": 0,
+                "latest_start": 2,
+                "gpu_count_required": 1,
+                "cpu_required": 0.0,
+                "memory_required_gb": 0.0,
+                "compatible_clusters": ["c_v100"],
+            },
+        ]
+    )
+    clusters = pd.DataFrame(
+        [
+            {"cluster_id": "c_t4", "capacity": 1.0, "gpu_capacity": 1},
+            {"cluster_id": "c_v100", "capacity": 1.0, "gpu_capacity": 1},
+        ]
+    )
+    hourly = pd.DataFrame(
+        {
+            "hour": [0, 1, 2],
+            "renewable_available": [0.0, 0.0, 0.0],
+            "grid_price": [30.0, 100.0, 40.0],
+            "pue": [1.20, 1.20, 1.20],
+        }
+    )
+
+    qubo = build_scheduling_qubo(
+        jobs,
+        hourly,
+        clusters,
+        ModelConfig(delta_t=1.0, renewable_price=10_000.0, pue=1.20),
+        QuboPenaltyWeights(assignment=200.0, gpu_capacity=80.0, peak_smoothing=5000.0),
+    )
+
+    assert qubo.metadata["num_assignment_variables"] == 8
+    assert qubo.metadata["num_slack_variables"] == 6
+    assert qubo.num_variables == 14
+    assert qubo.metadata["num_quadratic_terms"] == 22
 
 
 def test_decode_and_validate_feasible_qubo_sample():

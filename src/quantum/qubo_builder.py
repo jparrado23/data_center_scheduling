@@ -92,16 +92,19 @@ def _add_quadratic(qubo: SchedulingQubo, left: int, right: int, coefficient: flo
 def _compatible(job: pd.Series, cluster: pd.Series) -> bool:
     """Return whether a job can run on a cluster.
 
-    Prefer an explicit ``compatible_clusters`` relation when present. GPU-type
-    metadata remains supported as a preprocessing fallback for older instances.
+    Prefer an explicit ``compatible_clusters`` relation when present. When that
+    relation exists, it is treated as the final business/technical
+    compatibility matrix and stale GPU-type metadata is ignored. GPU-type
+    metadata remains supported only as a preprocessing fallback for older
+    instances.
     """
 
     gpu_count = int(job.get("gpu_count_required", job.get("gpus", 0)))
     if gpu_count > int(cluster.get("gpu_count", cluster.get("gpu_capacity", 0))):
         return False
     compatible_clusters = _normalize_cluster_ids(job.get("compatible_clusters", ""))
-    if compatible_clusters and str(cluster.get("cluster_id", "")).strip() not in compatible_clusters:
-        return False
+    if compatible_clusters:
+        return str(cluster.get("cluster_id", "")).strip() in compatible_clusters
     required_gpu_types = _normalize_gpu_types(job.get("gpu_type_required", ""))
     if required_gpu_types and str(cluster.get("gpu_type", "")).strip() not in required_gpu_types:
         return False
