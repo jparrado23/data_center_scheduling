@@ -1,0 +1,16 @@
+case,passed,expected,observed
+energy_price_cheapest_slot,True,job starts at cheaper slot 1,job starts at slot 1
+renewable_preference,True,job starts at renewable slot 0 and consumes renewable energy,"start=0, renewable_slot0=0.0100"
+gpu_capacity_prevents_overlap,True,two jobs are separated because only one GPU is available,"starts=[0, 1]"
+gpu_type_compatibility,True,T4 job is assigned to T4 cluster,assigned_cluster=cluster_t4
+incompatible_gpu_fails_fast,True,model build fails when a job has no compatible GPU type,jobs have no compatible cluster: ['impossible_t4']
+cpu_memory_ablation,True,enabled constraints separate jobs; disabled constraints allow cheap-slot overlap,"enabled=[0, 1], disabled=[0, 0]"
+pue_scales_facility_load,True,IT load 0.010 MW becomes facility load 0.015 MW with PUE 1.5,"it_load=0.0100, facility_load=0.0150"
+peak_penalty_discourages_overlap,True,jobs are separated to avoid grid import above contracted power,"starts=[0, 1], peak_grid=0.0100"
+battery_shifts_cheap_to_expensive,True,battery charges at cheap slot 0 and discharges at expensive slot 1,"charge_0=0.0100, discharge_1=0.0100, grid_1=0.0000"
+two_jobs_share_cheapest_slot_when_they_fit,True,both jobs go to cheaper slot 0 because capacity allows overlap,"starts=[0, 0]"
+duration_consecutive_slots,True,two-slot job starts at 1 and is active in slots 1 and 2,"start=1, active_load_slots=[1, 2]"
+deadline_restricts_cheaper_future_slot,True,job starts at slot 0 because latest_start forbids cheaper slot 1,start=0
+pipe_gpu_compatibility_allows_multiple_types,True,T4-only job uses T4 and flexible T4|G2 job uses G2 because T4 GPU is full,"{'either_t4_g2': 'cluster_g2', 'fixed_t4': 'cluster_t4'}"
+renewable_limit_forces_grid_residual,True,renewable capped at 0.010 MW and remaining 0.010 MW comes from grid,"renewable=0.0100, grid=0.0100"
+battery_disabled_has_no_battery_variables,True,no battery result columns and expensive-slot demand is served by grid,"no_battery_columns=True, grid_1=0.0100"
