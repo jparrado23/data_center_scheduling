@@ -1,9 +1,16 @@
-# Energy-Aware Scheduling for AI Data Centers
+# Energy-Aware AI Data Center Scheduling
 
-This repository develops an optimization framework for scheduling flexible AI
-workloads in a data center with heterogeneous GPU resources, renewable
-availability, electricity prices, PUE overhead, optional battery storage, and
-grid-import peak charges.
+This repository develops an optimization and quantum-computing research
+framework for reducing the energy cost of AI data centers. The project studies
+how flexible GPU workloads can be scheduled around renewable availability,
+electricity prices, PUE overhead, battery storage, and grid-import peak charges.
+
+The business goal is direct: shift flexible AI computation toward cheaper and
+cleaner energy periods while respecting the physical limits of heterogeneous GPU
+infrastructure. The technical challenge is that useful scheduling decisions are
+combinatorial: each job may have several feasible start times and several
+compatible GPU partitions, and each choice interacts with resource capacity and
+energy cost over time.
 
 The current source-of-truth model is a Gurobi MILP. It chooses:
 
@@ -13,10 +20,44 @@ The current source-of-truth model is a Gurobi MILP. It chooses:
   discharge;
 - the resulting grid-import peak used for demand charges.
 
-The project is also preparing heuristic, quantum, and quantum-inspired
-comparisons: genetic algorithm baselines, reduced QUBO formulations, simulated
-annealing, QAOA characterization, Pauli Correlation Encoding, tensor-network
-methods, quantum annealing, and hybrid approaches.
+The research track then maps reduced versions of the same scheduling problem to
+QUBO/Ising form for quantum and quantum-inspired methods: D-Wave quantum
+annealing, Fujitsu Digital Annealer-style QUBO execution, Qiskit-based Pauli
+Correlation Encoding, QAOA characterization, tensor-network methods, and hybrid
+classical/quantum decomposition.
+
+## Business and Research Objective
+
+AI data centers increasingly face two linked constraints:
+
+- GPU demand is high and bursty, especially for training, fine-tuning, and
+  batch inference workloads.
+- Energy cost and carbon intensity vary over time because of market prices,
+  renewable generation, cooling overhead, and grid-connection limits.
+
+This project asks whether a scheduler can reduce energy cost without violating
+job deadlines or resource constraints. The expected product direction is an
+energy-aware scheduling layer that sits above the low-level cluster scheduler:
+it decides when and where flexible jobs should be placed, while respecting GPU,
+CPU, memory, and power-system constraints.
+
+The research direction is to compare classical optimization with quantum and
+quantum-inspired solvers on the same scheduling structure. The MILP establishes
+the trusted baseline; QUBO, annealing, PCE, tensor networks, and hybrid methods
+test which parts of the problem are suitable for quantum approaches.
+
+## What This Repository Demonstrates
+
+- Formulating an energy-aware scheduling problem from business requirements to
+  mathematical constraints.
+- Implementing a Gurobi MILP with resource compatibility, PUE, renewable/grid
+  energy split, optional battery behavior, and peak charges.
+- Building feasible synthetic and Alibaba-calibrated instances for solver
+  stress testing.
+- Translating a reduced scheduling problem into QUBO form with explicit penalty
+  design and decoded-schedule validation.
+- Comparing classical, quantum, and quantum-inspired approaches without
+  overstating current hardware capabilities.
 
 ## Model At A Glance
 
@@ -48,6 +89,42 @@ For each time slot, the model uses:
 - fixed IT baseline load, when present;
 - scalar or hourly PUE;
 - renewable price, peak price, and contracted grid-import threshold.
+
+## Static and Dynamic Scheduling Modes
+
+The project is designed around two operating modes.
+
+### Static Planning
+
+The static mode solves a fixed planning horizon with known jobs, prices,
+renewable forecasts, and cluster capacities. This is the current experimental
+baseline and the right setting for:
+
+- validating the mathematical formulation;
+- comparing MILP, heuristics, QUBO, and quantum-inspired methods fairly;
+- stress-testing solver performance as jobs, time slots, and compatibility
+  options increase;
+- building benchmark instances from Alibaba traces and synthetic generators.
+
+### Dynamic Rolling Horizon
+
+The dynamic mode is the intended operational extension. Instead of solving one
+large static instance, the scheduler repeatedly optimizes the next 3-4 hours and
+updates the plan every hour as forecasts change.
+
+At each re-optimization step:
+
+1. collect newly arrived jobs and updated job forecasts;
+2. update renewable generation, electricity price, and demand forecasts;
+3. fix or protect decisions that are already running or too close to execution;
+4. solve the next short horizon;
+5. pass the selected near-term schedule to the cluster execution layer.
+
+This rolling-horizon design is more realistic for production data centers,
+where workload arrivals and renewable forecasts are uncertain. It also creates
+a natural hybrid strategy: use robust classical optimization for the full
+rolling workflow, and apply QUBO/quantum methods to selected short-horizon
+subproblems where the combinatorial structure is dense.
 
 ## Current MILP Capabilities
 
@@ -160,26 +237,77 @@ but also the couplers or Hamiltonian terms between them.
   provide regression coverage for QUBO construction, compatibility handling,
   decoding, feasibility validation, and tensor-network correctness.
 
-### Planned Quantum Experiments
+### QUBO Penalties and Their Meaning
 
-The current roadmap is:
+The reduced QUBO has the form:
 
-1. Use tiny hand-checkable QUBOs to prove each Hamiltonian term behaves as
-   expected.
-2. Use reduced hard instances to compare Gurobi, GA, D-Wave-style simulated
-   annealing, and exact tensor-network contraction where tractable.
-3. Convert the reduced QUBO to Ising form for QAOA experiments on very small
-   instances.
-4. Implement Pauli Correlation Encoding as a qubit-reduction experiment for
-   QUBOs that are too large for direct one-variable-per-qubit QAOA.
-5. Add D-Wave hardware execution when solver access is available, using
-   simulator results as a fallback.
-6. Explore hybrid decomposition, where classical optimization handles the full
-   MILP scale and quantum/QUBO methods target selected difficult subproblems.
+```text
+H(z) = offset + linear terms + quadratic interactions
+```
 
-The key evaluation rule is that every quantum output must be decoded back into
-a schedule and checked for assignment and resource feasibility before comparing
-costs.
+Each binary variable represents one scheduling option:
+
+```text
+x[job, cluster, start] = 1
+```
+
+The Hamiltonian is built from interpretable terms:
+
+- **Energy cost**: adds a linear cost to each scheduling option according to
+  power, PUE, electricity price, and active time slots. Alone, this term prefers
+  scheduling nothing, so it must be combined with assignment penalties.
+- **Assignment penalty**: forces every job to be scheduled exactly once. It
+  rewards selecting one option for a job and penalizes selecting zero or more
+  than one.
+- **Compatibility**: incompatible job-cluster pairs are omitted before QUBO
+  construction. This reduces variables and avoids needing a separate
+  compatibility penalty.
+- **GPU capacity penalty**: converts
+  `used GPUs <= available GPUs` into
+  `used GPUs + unused-GPU slack = available GPUs`, then squares the violation.
+  This is the main physical feasibility term in the first QUBO.
+- **Peak/load smoothing penalty**: penalizes concentrated load by squaring
+  simultaneous IT or fixed-PUE facility load. This encourages spreading work
+  when energy-cost savings do not justify a load spike.
+- **PUE handling**: fixed or hourly PUE is a multiplier in the energy and peak
+  terms. Load-dependent PUE is supported in the energy term when it remains
+  quadratic; it is not inserted into the squared peak term because that would
+  create higher-order terms outside QUBO.
+
+The important modeling point is that constraints become penalties. Penalty
+weights must be large enough that feasible schedules dominate cheap but invalid
+schedules, and every decoded solution is validated after solving.
+
+### Quantum Roadmap
+
+The quantum roadmap is organized around a shared reduced QUBO benchmark ladder:
+
+1. **QUBO construction and validation**: build the Hamiltonian term by term,
+   verify each penalty on tiny hand-checkable instances, and validate decoded
+   schedules.
+2. **Classical QUBO solvers**: use simulated annealing and exact tensor-network
+   contraction where tractable as controlled references.
+3. **D-Wave quantum annealing**: execute the reduced QUBO as a
+   `dimod.BinaryQuadraticModel`, first with local samplers and then with Leap
+   hardware access.
+4. **Fujitsu Digital Annealer**: use the same QUBO coefficient representation
+   as a target for Digital Annealer execution and compare feasibility, energy,
+   and runtime against D-Wave and Gurobi baselines.
+5. **QAOA and Qiskit**: convert QUBO to Ising form and characterize small
+   instances under gate-based quantum circuits.
+6. **Pauli Correlation Encoding**: implement a Qiskit-based PCE path to reduce
+   the number of qubits required relative to one-QUBO-variable-per-qubit QAOA.
+7. **Tensor networks**: use tensor-network contraction as a quantum-inspired
+   method for exact small-QUBO solving and for studying how interaction graph
+   structure affects difficulty.
+8. **Hybrid decomposition**: combine classical rolling-horizon optimization
+   with QUBO subproblem extraction, using quantum methods only where they are
+   structurally plausible.
+
+This roadmap keeps the thesis technically grounded: quantum methods are not
+presented as a replacement for Gurobi today, but as a disciplined investigation
+of where quantum encodings may become useful as hardware and hybrid methods
+improve.
 
 ## Setup
 
@@ -339,50 +467,6 @@ the solver only uses the flexible model-ready input files.
 For 15-minute or 30-minute slots, regenerate the Alibaba calibration with the
 same `slot_minutes` first. The generator fails fast if calibration slot length
 and instance slot length differ.
-
-## Notebooks
-
-Open the toy MILP notebook:
-
-```bash
-jupyter notebook notebooks/01_milp_toy_example.ipynb
-```
-
-Solve a repo-local or processed scenario:
-
-```bash
-jupyter notebook notebooks/05_solve_processed_instance.ipynb
-```
-
-Explore Alibaba traces:
-
-```bash
-jupyter notebook notebooks/06_alibaba_2023_trace_eda.ipynb
-```
-
-Run the current genetic algorithm baseline:
-
-```bash
-jupyter notebook notebooks/07_genetic_algorithm_baseline.ipynb
-```
-
-Run Gurobi stress tests on generated Alibaba-calibrated instances:
-
-```bash
-jupyter notebook notebooks/08_gurobi_generated_instance_stress_test.ipynb
-```
-
-Study the reduced QUBO formulation step by step:
-
-```bash
-jupyter notebook notebooks/13_qubo_step_by_step_formulation.ipynb
-```
-
-Run quantum hard-instance benchmark experiments:
-
-```bash
-jupyter notebook notebooks/11_quantum_hard_instance_benchmarks.ipynb
-```
 
 ## Input Schema
 

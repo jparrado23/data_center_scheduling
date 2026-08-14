@@ -258,719 +258,506 @@
 <div class="page">
   <header>
     <p class="eyebrow">Quantum Scheduling Formulation</p>
-    <h1>Full MILP Scope and Reduced QUBO Hamiltonian</h1>
+    <h1>Reduced QUBO Hamiltonian for GPU Job Scheduling</h1>
     <p class="subtitle">
-      This note separates the complete energy-aware data-center scheduling model
-      solved with Gurobi from the reduced QUBO Hamiltonian intended for quantum,
-      quantum-inspired, and hybrid experiments.
+      Supervisor-facing explanation of the reduced QUBO used in the quantum
+      track. The order follows the implemented notebook: define the binary
+      variables, precompute activity, introduce the squared-penalty expansion,
+      and then add energy, assignment, GPU-capacity, peak, and PUE terms.
     </p>
     <div class="meta">
-      <span class="pill">MILP baseline</span>
-      <span class="pill">QUBO reduction</span>
-      <span class="pill">PUE-aware cost</span>
-      <span class="pill">GPU Hamiltonian</span>
+      <span class="pill">QUBO only</span>
+      <span class="pill">Notebook order</span>
+      <span class="pill">GPU slack</span>
+      <span class="pill">Hamiltonian terms</span>
     </div>
   </header>
 
   <main>
     <nav>
-      <a href="#problem">Problem</a>
-      <a href="#full-milp">Full MILP</a>
-      <a href="#qubo">Reduced QUBO</a>
-      <a href="#hamiltonian">Hamiltonian</a>
+      <a href="#scope">1. Scope</a>
+      <a href="#variables">2. Variables</a>
+      <a href="#square">3. Square Penalty</a>
+      <a href="#terms">4. Terms</a>
+      <a href="#pue">5. PUE</a>
+      <a href="#total">6. Total</a>
+      <a href="#validation">7. Validation</a>
+      <a href="#size">8. Size</a>
     </nav>
 
-    <section id="problem">
-      <h2>1. Problem Definition</h2>
+    <section id="scope">
+      <h2>1. QUBO Scope and Modeling Boundary</h2>
       <p>
-        We schedule flexible GPU workloads in a data center with heterogeneous GPU
-        clusters. Each job has a feasible start window, duration, GPU demand, CPU
-        demand, memory demand, and an implied IT power coefficient. Power is not
-        treated as a separate cluster capacity; it is a consequence of the
-        selected workloads. The scheduler chooses a cluster and start time for
-        each job while minimizing facility energy cost and respecting resource
-        and energy-system constraints.
+        This document focuses only on the reduced QUBO formulation. The goal is
+        not to reproduce the full operational optimization model. Instead, the
+        QUBO isolates the binary scheduling core that can be sent to D-Wave,
+        QAOA, Pauli Correlation Encoding, tensor-network methods, or other
+        QUBO/Ising-compatible solvers.
       </p>
       <div class="callout">
-        <strong>Goal.</strong> The full model is the operational source of truth
-        and is solved classically with Gurobi. The QUBO is a reduced binary
-        formulation used to test quantum feasibility on smaller or decomposed
-        scheduling subproblems.
+        <p style="margin:0">
+          <strong>Core idea.</strong> The QUBO chooses whether each job runs on a
+          compatible cluster at a feasible start time. Feasibility constraints
+          are converted into Hamiltonian penalties, and costs are encoded as
+          linear or quadratic coefficients.
+        </p>
       </div>
+      <p>
+        The current reduced QUBO includes assignment, GPU capacity, energy cost,
+        fixed/exogenous PUE, an optional load-dependent PUE energy term, and a
+        peak/load-smoothing proxy. It intentionally does not include battery
+        state of charge, explicit renewable/grid dispatch variables, exact
+        contracted peak billing, or continuous energy-balance variables.
+      </p>
 
-      <h3>Sets and Indices</h3>
+      <h3>Toy Instance Used in the Notebook</h3>
+      <p>
+        The notebook uses a tiny instance so every coefficient can be inspected
+        and every Hamiltonian term can be validated progressively.
+      </p>
       <table>
-        <tr><th>Symbol</th><th>Meaning</th></tr>
-        <tr><td>\(\mathcal{I}\)</td><td>Set of jobs, indexed by \(i\).</td></tr>
-        <tr><td>\(\mathcal{K}\)</td><td>Set of clusters or GPU partitions, indexed by \(k\).</td></tr>
-        <tr><td>\(\mathcal{T}\)</td><td>Set of time slots, indexed by \(t\).</td></tr>
-        <tr><td>\(\mathcal{S}_i\)</td><td>Feasible start slots for job \(i\), indexed by \(s\).</td></tr>
-        <tr><td>\(\mathcal{K}_i\)</td><td>Clusters compatible with job \(i\), based on GPU type and resource metadata.</td></tr>
-      </table>
-
-      <h3>Parameters</h3>
-      <table>
-        <tr><th>Symbol</th><th>Meaning</th></tr>
-        <tr><td>\(d_i\)</td><td>Duration of job \(i\) in time slots.</td></tr>
-        <tr><td>\(p_i\)</td><td>IT power consumed by job \(i\), in MW. We assume job IT power does not depend on the selected cluster.</td></tr>
-        <tr><td>\(g_i,cpu_i,mem_i\)</td><td>GPU, CPU, and memory requirements of job \(i\).</td></tr>
-        <tr><td>\(G_k,CPU_k,MEM_k\)</td><td>GPU, CPU, and memory capacity of cluster \(k\).</td></tr>
-        <tr><td>\(a_{i,s,t}\)</td><td>Precomputed activity coefficient: 1 if start \(s\) makes job \(i\) active at slot \(t\), 0 otherwise.</td></tr>
-        <tr><td>\(r_t\)</td><td>Renewable availability at slot \(t\), in MW.</td></tr>
-        <tr><td>\(c^G_t,c^R\)</td><td>Grid price at slot \(t\) and renewable energy price.</td></tr>
-        <tr><td>\(\Delta t\)</td><td>Slot length in hours.</td></tr>
-        <tr><td>\(\bar{P}^{contract}\)</td><td>Contracted maximum facility power threshold, in MW.</td></tr>
-        <tr><td>\(\pi^{peak}\)</td><td>Peak excess price.</td></tr>
-        <tr><td>\(\eta^c,\eta^d\)</td><td>Battery charge and discharge efficiencies.</td></tr>
-      </table>
-
-      <h3>Full-Problem Decision Variables</h3>
-      <table>
-        <tr><th>Variable</th><th>Domain</th><th>Meaning</th></tr>
-        <tr><td>\(x_{i,k,s}\)</td><td>\(\{0,1\}\)</td><td>1 if job \(i\) starts on cluster \(k\) at slot \(s\).</td></tr>
-        <tr><td>\(R_t\)</td><td>\(\mathbb{R}_+\)</td><td>Renewable power consumed at slot \(t\).</td></tr>
-        <tr><td>\(Q_t\)</td><td>\(\mathbb{R}_+\)</td><td>Grid power imported at slot \(t\).</td></tr>
-        <tr><td>\(P^{peak}\)</td><td>\(\mathbb{R}_+\)</td><td>Maximum facility power across the horizon.</td></tr>
-        <tr><td>\(P^{excess}\)</td><td>\(\mathbb{R}_+\)</td><td>Facility power above the contracted threshold.</td></tr>
-        <tr><td>\(B^c_t,B^d_t\)</td><td>\(\mathbb{R}_+\)</td><td>Battery charge and discharge power at slot \(t\).</td></tr>
-        <tr><td>\(SOC_t\)</td><td>\(\mathbb{R}_+\)</td><td>Battery state of charge at slot \(t\).</td></tr>
+        <tr><th>Element</th><th>Value</th></tr>
+        <tr><td>Jobs</td><td>3 jobs: \(j_1,j_2,j_3\)</td></tr>
+        <tr><td>Duration</td><td>All jobs last 1 time slot</td></tr>
+        <tr><td>Time horizon</td><td>3 slots: \(t=0,1,2\), with \(\Delta t=1\) hour</td></tr>
+        <tr><td>GPU demand</td><td>Each job requires 1 GPU</td></tr>
+        <tr><td>IT power</td><td>\(p_1=0.010\) MW, \(p_2=0.015\) MW, \(p_3=0.008\) MW</td></tr>
+        <tr><td>Clusters</td><td>\(c_{T4}\) has 1 GPU; \(c_{V100}\) has 1 GPU</td></tr>
+        <tr><td>Compatibility</td><td>\(j_1,j_2\) can only run on \(c_{T4}\); \(j_3\) can only run on \(c_{V100}\)</td></tr>
+        <tr><td>Prices</td><td>\(c_0=30\), \(c_1=100\), \(c_2=40\) per MWh</td></tr>
+        <tr><td>Fixed PUE</td><td>\(PUE_t=1.20\) for all slots</td></tr>
       </table>
     </section>
 
-    <section id="full-milp">
-      <h2>2. Full Mathematical Formulation</h2>
-      <p>
-        The full formulation keeps the operational energy variables continuous.
-        With constant or exogenous PUE it is a MILP. With utilization-dependent
-        PUE it may become quadratic unless the PUE effect is approximated or
-        linearized.
-      </p>
+    <section id="variables">
+      <h2>2. QUBO Variables, Compatibility, and Activity</h2>
 
-      <h3>Objective With Renewable, Grid, and Peak Cost</h3>
-      <div class="formula">
-        <span class="formula-label">Full cost objective</span>
-        \[
-        \min
-        \sum_{t\in\mathcal{T}}
-        \left(
-        c^R R_t\Delta t
-        +
-        c^G_t Q_t\Delta t
-        \right)
-        +
-        \pi^{peak}P^{excess}
-        \]
-      </div>
+      <h3>2.1 Assignment Variables</h3>
       <p>
-        The objective pays for renewable energy, grid energy, and facility-power
-        peak excess. The scheduling variables influence the objective through
-        facility load, which is linked to IT load and PUE below.
+        The fundamental binary variable is one complete scheduling option:
       </p>
-
-      <h3>Activity and Load Definitions</h3>
       <div class="formula">
-        <span class="formula-label">Activity coefficient</span>
+        <span class="formula-label">Assignment decision</span>
         \[
-        a_{i,s,t} =
-        \begin{cases}
-        1, & s \le t < s+d_i,\\
+        x_{i,k,s}=\begin{cases}
+        1, & \text{job }i\text{ starts on cluster }k\text{ at slot }s,\\
         0, & \text{otherwise.}
         \end{cases}
         \]
       </div>
+      <p>
+        The QUBO does not create variables for impossible combinations. If a job
+        is not compatible with a cluster, all corresponding \(x_{i,k,s}\)
+        variables are omitted before the Hamiltonian is built.
+      </p>
       <div class="formula">
-        <span class="formula-label">Cluster and total IT load</span>
+        <span class="formula-label">Feasible option set</span>
         \[
-        L^{IT}_{k,t}(x)=
-        \sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
+        \mathcal{A}_i=\{(k,s): C_{i,k}=1,\ s\in\mathcal{S}_i\}
+        \]
+      </div>
+      <table>
+        <tr><th>Symbol</th><th>Meaning</th></tr>
+        <tr><td>\(\mathcal{I}\)</td><td>Set of jobs.</td></tr>
+        <tr><td>\(\mathcal{K}\)</td><td>Set of clusters or aggregate GPU partitions.</td></tr>
+        <tr><td>\(\mathcal{S}_i\)</td><td>Feasible start slots for job \(i\).</td></tr>
+        <tr><td>\(C_{i,k}\)</td><td>Compatibility relation. It is 1 if job \(i\) can run on cluster \(k\).</td></tr>
+        <tr><td>\(\mathcal{A}_i\)</td><td>Set of feasible cluster-start options for job \(i\).</td></tr>
+      </table>
+
+      <h3>2.2 Activity Coefficient</h3>
+      <p>
+        Activity is precomputed data, not a decision variable. It tells us which
+        time slots are occupied if a job starts at a given slot.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Precomputed activity</span>
+        \[
+        a_{i,s,t}=\begin{cases}
+        1, & s\le t<s+d_i,\\
+        0, & \text{otherwise.}
+        \end{cases}
+        \]
+      </div>
+      <p>
+        Once the solver selects \(x_{i,k,s}=1\), the coefficient
+        \(a_{i,s,t}\) determines where the job contributes power and GPU load.
+        This is why the QUBO does not need extra variables for “job is active”.
+      </p>
+
+      <h3>2.3 Load Expressions</h3>
+      <p>These expressions are used later to build energy, GPU, and peak terms.</p>
+      <div class="formula">
+        <span class="formula-label">IT power load</span>
+        \[
+        L_t^{IT}(x)=\sum_{i\in\mathcal{I}}\sum_{k\in\mathcal{K}}\sum_{s\in\mathcal{S}_i}
         p_i a_{i,s,t}x_{i,k,s}
         \]
-        \[
-        L^{IT}_{t}(x)=\sum_{k\in\mathcal{K}}L^{IT}_{k,t}(x)
-        \]
       </div>
-
-      <h3>Assignment Constraint</h3>
-      <p>
-        Every job must be scheduled exactly once. This means the model cannot
-        skip a job, and it also cannot assign the same job to two clusters or two
-        start times.
-      </p>
       <div class="formula">
+        <span class="formula-label">GPU demand by cluster and time</span>
         \[
-        \sum_{k\in\mathcal{K}_i}\sum_{s\in\mathcal{S}_i}
-        x_{i,k,s}=1
-        \qquad \forall i\in\mathcal{I}
-        \]
-      </div>
-
-      <h3>GPU, CPU, and Memory Constraints</h3>
-      <p>
-        These constraints enforce the physical cluster capacities at every time
-        slot. A job consumes resources in every slot in which it is active, so a
-        job starting at \(s\) contributes to slot \(t\) only when
-        \(a_{i,s,t}=1\). Power is not a separate cluster capacity here; it is
-        derived from the scheduled jobs and used later in the energy balance and
-        objective.
-      </p>
-      <div class="formula">
-        <span class="formula-label">GPU capacity</span>
-        \[
-        \sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
+        D^G_{k,t}(x)=\sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
         g_i a_{i,s,t}x_{i,k,s}
-        \le G_k
-        \qquad \forall k\in\mathcal{K},\forall t\in\mathcal{T}
         \]
       </div>
-      <div class="formula">
-        <span class="formula-label">CPU and memory capacity</span>
-        \[
-        \sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
-        cpu_i a_{i,s,t}x_{i,k,s}
-        \le CPU_k
-        \qquad \forall k,t
-        \]
-        \[
-        \sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
-        mem_i a_{i,s,t}x_{i,k,s}
-        \le MEM_k
-        \qquad \forall k,t
-        \]
-      </div>
+    </section>
 
-      <h3>PUE Modeling</h3>
+    <section id="square">
+      <h2>3. Generic Squared-Penalty Expansion</h2>
       <p>
-        PUE converts IT power into facility power. IT load is the power consumed
-        by the computing equipment. Facility power includes the extra cooling and
-        electrical overhead required to operate that equipment. In the baseline,
-        PUE is constant or exogenous by time slot:
+        The notebook implements constraints using a generic helper that expands
+        squared equalities into QUBO coefficients. For binary variables
+        \(z_r\in\{0,1\}\), consider:
+      </p>
+      <div class="formula">
+        <span class="formula-label">Generic squared equality</span>
+        \[
+        H_{penalty}=\lambda\left(\sum_{r\in R}a_rz_r-b\right)^2
+        \]
+      </div>
+      <p>Expanding the square gives:</p>
+      <div class="formula">
+        <span class="formula-label">Expansion</span>
+        \[
+        \begin{aligned}
+        H_{penalty}
+        &=\lambda\left[
+        \left(\sum_{r\in R}a_rz_r\right)^2
+        -2b\sum_{r\in R}a_rz_r+b^2
+        \right]\\
+        &=\lambda\left[
+        \sum_{r\in R}a_r^2z_r^2
+        +\sum_{r\in R}\sum_{\substack{q\in R\\q\ne r}}a_ra_qz_rz_q
+        -2b\sum_{r\in R}a_rz_r+b^2
+        \right].
+        \end{aligned}
+        \]
+      </div>
+      <p>
+        Because variables are binary, \(z_r^2=z_r\). Therefore:
       </p>
       <div class="formula">
         \[
-        P^{fac}_t = PUE_t \cdot L^{IT}_t(x)
+        H_{penalty}=\lambda b^2
+        +\sum_{r\in R}\lambda(a_r^2-2ba_r)z_r
+        +\sum_{r\in R}\sum_{\substack{q\in R\\q\ne r}}\lambda a_ra_qz_rz_q
         \]
       </div>
       <p>
-        For an advanced model, PUE can depend on normalized IT utilization:
+        The formula above writes ordered pairs \(q\ne r\). The implementation
+        stores each unordered QUBO interaction once, so it adds
+        \(2\lambda a_ra_q\) for the stored pair \((r,q)\). This is the same
+        mathematics with a more efficient coefficient representation.
       </p>
-      <div class="formula">
-        <span class="formula-label">Affine utilization-dependent PUE</span>
-        \[
-        u_t=\frac{L^{IT}_t(x)}{L^{IT}_{max}},
-        \qquad
-        PUE_t(u_t)=PUE_{low}-\beta u_t
-        \]
-        \[
-        P^{fac}_t(x)=
-        PUE_{low}L^{IT}_t(x)
-        -
-        \frac{\beta}{L^{IT}_{max}}\left(L^{IT}_t(x)\right)^2
-        \]
-      </div>
-      <div class="callout warning">
-        <strong>Interpretation.</strong> Load-dependent PUE is an objective
-        transformation, not a hard feasibility constraint. It rewards higher
-        utilization if PUE decreases with load, so it must be balanced against
-        resource limits and peak penalties.
-      </div>
+      <table>
+        <tr><th>QUBO component</th><th>Coefficient added by the helper</th></tr>
+        <tr><td>Offset</td><td>\(+\lambda b^2\)</td></tr>
+        <tr><td>Linear term for \(z_r\)</td><td>\(+\lambda(a_r^2-2ba_r)\)</td></tr>
+        <tr><td>Quadratic term for stored pair \(z_rz_q\), \(r&lt;q\)</td><td>\(+2\lambda a_ra_q\)</td></tr>
+      </table>
+    </section>
 
-      <h3>Energy Balance and Renewable Limit</h3>
+    <section id="terms">
+      <h2>4. Hamiltonian Terms in Notebook Order</h2>
+
+      <h3>4.1 Energy Cost Term</h3>
       <p>
-        The energy balance forces supply to equal demand in each slot. Facility
-        demand plus battery charging must be covered by renewable consumption,
-        grid import, and battery discharge. Renewable consumption cannot exceed
-        available renewable generation.
+        The notebook starts with the energy cost term. Under fixed or exogenous
+        PUE, each assignment variable receives a linear cost equal to the price
+        of the time slots in which the job would be active.
       </p>
       <div class="formula">
+        <span class="formula-label">Per-option energy coefficient</span>
         \[
-        R_t + Q_t + B^d_t
-        =
-        P^{fac}_t(x) + B^c_t
-        \qquad \forall t\in\mathcal{T}
-        \]
-        \[
-        0\le R_t\le r_t,\qquad Q_t\ge 0
-        \qquad \forall t
+        E_{i,k,s}=\sum_{t\in\mathcal{T}}c_t\Delta t\,PUE_t\,p_i\,a_{i,s,t}
         \]
       </div>
-
-      <h3>Facility Peak</h3>
-      <p>
-        The peak variable records the maximum facility power observed across the
-        horizon. The excess variable charges only the amount above the contracted
-        power threshold.
-      </p>
       <div class="formula">
+        <span class="formula-label">Energy Hamiltonian</span>
         \[
-        P^{peak}\ge P^{fac}_t(x)
-        \qquad \forall t\in\mathcal{T}
-        \]
-        \[
-        P^{excess}\ge P^{peak}-\bar{P}^{contract},
-        \qquad
-        P^{excess}\ge 0
-        \]
-      </div>
-
-      <h3>Battery Modeling</h3>
-      <p>
-        Battery variables allow the model to move energy across time. Charging
-        increases state of charge after charge efficiency losses; discharging
-        decreases state of charge after discharge efficiency losses. If battery
-        use is disabled, these variables and constraints are removed or fixed to
-        zero.
-      </p>
-      <div class="formula">
-        <span class="formula-label">Charge, discharge, and state of charge</span>
-        \[
-        0\le B^c_t\le \bar{B}^{power},
-        \qquad
-        0\le B^d_t\le \bar{B}^{power}
-        \]
-        \[
-        0\le SOC_t\le \bar{B}^{energy}
-        \]
-        \[
-        SOC_t =
-        SOC_{t-1}
-        +
-        \eta^c B^c_t\Delta t
-        -
-        \frac{B^d_t}{\eta^d}\Delta t
-        \qquad \forall t
+        H_{energy}^{fixed}=\sum_{i,k,s}E_{i,k,s}x_{i,k,s}
         \]
       </div>
       <div class="callout">
-        <strong>Battery interpretation.</strong> This general model allows grid
-        price arbitrage unless an additional renewable-only charging constraint
-        is introduced.
+        <strong>Validation meaning.</strong> With only this term, the optimal
+        solution schedules no jobs because all scheduled work has positive cost.
+        This is correct: the cost term prices work, but does not force work to
+        happen.
       </div>
-    </section>
 
-    <section id="qubo">
-      <h2>3. Reduced QUBO Problem Description</h2>
+      <h3>4.2 Assignment Constraint Penalty</h3>
       <p>
-        The QUBO formulation is deliberately reduced. It keeps only binary
-        scheduling decisions and binary slack variables needed for selected
-        constraints. Continuous grid, renewable, exact facility-peak, and battery
-        variables are not included in the first QUBO.
-      </p>
-
-      <h3>QUBO Variables</h3>
-      <table>
-        <tr><th>Variable</th><th>Domain</th><th>Meaning</th></tr>
-        <tr><td>\(x_{i,k,s}\)</td><td>\(\{0,1\}\)</td><td>Job \(i\) starts on cluster \(k\) at feasible start slot \(s\).</td></tr>
-        <tr><td>\(y_{k,t,b}\)</td><td>\(\{0,1\}\)</td><td>Binary bit used to encode unused GPU slack at cluster \(k\), time \(t\).</td></tr>
-      </table>
-
-      <h3>Reduced Parameters</h3>
-      <table>
-        <tr><th>Symbol</th><th>Meaning</th></tr>
-        <tr><td>\(g_i\)</td><td>GPU demand of job \(i\).</td></tr>
-        <tr><td>\(G_k\)</td><td>GPU capacity of cluster \(k\).</td></tr>
-        <tr><td>\(p_i\)</td><td>IT power of job \(i\), assumed cluster-independent in the reduced QUBO.</td></tr>
-        <tr><td>\(c_t\)</td><td>Effective energy price used by QUBO. It may be grid-only or a simplified renewable-aware price.</td></tr>
-        <tr><td>\(a_{i,s,t}\)</td><td>Precomputed activity coefficient.</td></tr>
-        <tr><td>\(\lambda_A,\lambda_G,\lambda_P\)</td><td>Assignment, GPU, and peak/load penalty weights.</td></tr>
-      </table>
-
-      <div class="callout warning">
-        <strong>Reduction boundary.</strong> The first QUBO is not an exact
-        reformulation of the full MILP. It does not explicitly decide renewable
-        versus grid supply. Instead, it uses an effective time price and a load
-        shaping term to represent the energy timing and peak-pressure signal.
-      </div>
-    </section>
-
-    <section id="hamiltonian">
-      <h2>4. QUBO Mathematical Formulation</h2>
-
-      <h3>4.1 Assignment Penalty</h3>
-      <p>
-        Define the feasible assignment set for each job. Each element
-        \((k,s)\) is one complete scheduling option: run job \(i\) on cluster
-        \(k\) starting at slot \(s\).
-      </p>
-      <div class="formula">
-        \[
-        \mathcal{A}_i=
-        \{(k,s): k\in\mathcal{K}_i,\ s\in\mathcal{S}_i\}
-        \]
-      </div>
-      <p>
-        The one-job assignment constraint is:
+        Next, every job must be selected exactly once from its feasible options:
       </p>
       <div class="formula">
         \[
         \sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}=1
         \]
       </div>
-      <p>
-        In QUBO we do not impose this equality as a hard linear constraint.
-        Instead, we add a penalty that is minimized when the equality is
-        satisfied:
-      </p>
+      <p>The QUBO penalty is:</p>
       <div class="formula">
         \[
-        H_{assign}
-        =
-        \lambda_A
-        \sum_{i\in\mathcal{I}}
-        \left(
-        \sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}
-        -
-        1
-        \right)^2
+        H_{assign}=\lambda_A\sum_{i\in\mathcal{I}}
+        \left(\sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}-1\right)^2
         \]
       </div>
       <p>
-        Let \(S_i=\sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}\). Then:
+        For one job, define \(z_r\) as each feasible option in \(\mathcal{A}_i\).
+        This is the generic squared penalty with \(a_r=1\) and \(b=1\):
       </p>
       <div class="formula">
+        <span class="formula-label">Expanded assignment penalty for one job</span>
         \[
-        (S_i-1)^2=S_i^2-2S_i+1
-        \]
-        \[
-        S_i^2=
-        \sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}
+        \lambda_A\left[
+        1-
+        \sum_{r\in\mathcal{A}_i}z_r
         +
-        \sum_{\substack{(k,s),(k',s')\in\mathcal{A}_i\\(k,s)\ne(k',s')}}
-        x_{i,k,s}x_{i,k',s'}
-        \]
-      </div>
-      <p>
-        The second sum uses ordered unequal pairs, so no coefficient 2 is written.
-        Ignoring the constant, the expanded assignment Hamiltonian is:
-      </p>
-      <div class="formula">
-        \[
-        \boxed{
-        H_{assign}
-        =
-        \lambda_A
-        \sum_{i\in\mathcal{I}}
-        \left[
-        \sum_{\substack{(k,s),(k',s')\in\mathcal{A}_i\\(k,s)\ne(k',s')}}
-        x_{i,k,s}x_{i,k',s'}
-        -
-        \sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}
+        \sum_{r\in\mathcal{A}_i}\sum_{\substack{q\in\mathcal{A}_i\\q\ne r}}z_rz_q
         \right]
-        }
         \]
       </div>
-      <div class="callout">
-        The positive quadratic terms penalize choosing two scheduling options for
-        the same job. The negative linear term rewards choosing at least one
-        option. Together, the minimum is reached when exactly one option is
-        selected.
-      </div>
-
-      <h3>4.2 GPU Constraint Hamiltonian</h3>
       <p>
-        To avoid confusing GPU usage with IT power load, define GPU demand in
-        cluster \(k\), time \(t\), as \(D^G_{k,t}(x)\):
+        The negative linear part rewards selecting an option. The positive
+        quadratic part penalizes selecting two different options for the same
+        job. The minimum penalty is reached when exactly one option is selected.
       </p>
-      <div class="formula">
-        \[
-        D^G_{k,t}(x)=
-        \sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
-        g_i a_{i,s,t}x_{i,k,s}
-        \]
-      </div>
+
+      <h3>4.3 GPU Capacity Constraint With Binary Slack</h3>
       <p>
-        This counts all GPUs requested by jobs active in that cluster and slot.
-        The physical GPU capacity constraint is:
+        GPU capacity is an inequality per cluster and time slot:
       </p>
       <div class="formula">
         \[
         D^G_{k,t}(x)\le G_k
-        \qquad \forall k,t
         \]
       </div>
       <p>
-        QUBO handles equalities more naturally than inequalities. We therefore
-        introduce unused-GPU slack \(u_{k,t}\), which represents the number of
-        GPUs left idle in cluster \(k\) at time \(t\):
+        QUBO handles equalities naturally, so the inequality is rewritten using
+        unused-GPU slack \(Y_{k,t}\):
       </p>
       <div class="formula">
         \[
-        D^G_{k,t}(x)+u_{k,t}=G_k
+        D^G_{k,t}(x)+Y_{k,t}=G_k
         \]
       </div>
-      <p>
-        Encode slack with binary variables:
-      </p>
+      <p>The slack is encoded in binary:</p>
       <div class="formula">
         \[
-        u_{k,t}=
-        \sum_{b=0}^{B_k-1}2^b y_{k,t,b},
+        Y_{k,t}=\sum_{b=0}^{B_k-1}2^b y_{k,t,b},
         \qquad
         B_k=\left\lceil\log_2(G_k+1)\right\rceil
         \]
       </div>
-      <p>
-        The GPU Hamiltonian penalizes any assignment and slack combination that
-        does not exactly explain the available GPU capacity:
-      </p>
+      <p>The GPU Hamiltonian becomes:</p>
       <div class="formula">
         \[
-        \boxed{
-        H_{GPU}
-        =
-        \lambda_G
-        \sum_{k\in\mathcal{K}}\sum_{t\in\mathcal{T}}
+        H_{GPU}=\lambda_G\sum_{k,t}
         \left(
-        \sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
-        g_i a_{i,s,t}x_{i,k,s}
-        +
-        \sum_{b=0}^{B_k-1}2^b y_{k,t,b}
-        -
-        G_k
+        \sum_i\sum_s g_i a_{i,s,t}x_{i,k,s}
+        +\sum_{b=0}^{B_k-1}2^b y_{k,t,b}
+        -G_k
         \right)^2
-        }
         \]
       </div>
+      <p>
+        For one cluster-time pair, the expansion contains assignment-assignment
+        interactions, assignment-slack interactions, slack-slack interactions,
+        linear terms, and the constant \(\lambda_GG_k^2\). If usage is below
+        capacity, slack can represent the unused GPUs and the penalty can be
+        zero. If usage exceeds capacity, no non-negative slack can repair the
+        equality, so the penalty is positive.
+      </p>
 
-      <h3>4.3 Energy Cost Hamiltonian</h3>
+      <h3>4.4 Peak Penalty</h3>
       <p>
-        The reduced QUBO does not choose explicit renewable and grid flows.
-        Instead, it uses an effective time-dependent price \(c_t\). This price
-        can represent grid price, a renewable-aware adjusted price, or any
-        scenario-specific signal we want the quantum model to follow.
+        After assignment and GPU capacity, the notebook adds a peak or
+        load-smoothing proxy. With fixed PUE, the proxy uses squared facility
+        load:
       </p>
       <div class="formula">
         \[
-        \boxed{
-        H_{energy}
-        =
-        \sum_{t\in\mathcal{T}}
-        \sum_{k\in\mathcal{K}}
-        \sum_{i\in\mathcal{I}}
-        \sum_{s\in\mathcal{S}_i}
-        c_t\Delta t\ p_i a_{i,s,t}x_{i,k,s}
-        }
+        H_{peak}^{fixed}=\lambda_P\sum_t\left(PUE_tL_t^{IT}(x)\right)^2
         \]
       </div>
       <p>
-        Equivalently, each assignment variable receives a linear coefficient
-        \(E_{i,k,s}\). This coefficient is the total energy cost of choosing
-        option \((i,k,s)\), computed by summing the active slots of the job:
+        This is still a QUBO because \(PUE_t\) is constant and
+        \(L_t^{IT}(x)\) is linear in the binary assignment variables.
       </p>
       <div class="formula">
+        <span class="formula-label">Expanded peak term for one time slot</span>
         \[
-        E_{i,k,s}=
-        \sum_{t\in\mathcal{T}}
-        c_t\Delta t\ p_i a_{i,s,t}
-        \]
-        \[
-        H_{energy}=
-        \sum_{i,k,s}E_{i,k,s}x_{i,k,s}
-        \]
-      </div>
-
-      <h3>4.4 Peak Penalty Hamiltonian</h3>
-      <p>
-        Exact contracted facility-peak billing requires additional binary
-        variables for peak level and excess. As a first QUBO-compatible proxy,
-        use squared IT load. PUE is introduced in the next section, after the
-        base peak proxy is defined.
-      </p>
-      <div class="formula">
-        \[
-        L^{IT}_t(x)=
-        \sum_{k\in\mathcal{K}}\sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
-        p_i a_{i,s,t}x_{i,k,s}
-        \]
-        \[
-        \boxed{
-        H_{peak}
-        =
-        \lambda_P
-        \sum_{t\in\mathcal{T}}
-        \left(L^{IT}_t(x)\right)^2
-        }
-        \]
-      </div>
-      <div class="callout">
-        This proxy discourages concentrating IT power in a single slot. It is
-        not the same as squaring the total energy cost, and it is not exact
-        contracted peak billing. Its role is to create a penalty against
-        schedules with sharp load spikes.
-      </div>
-
-      <h3>4.5 PUE Integration</h3>
-      <p>
-        PUE is not added as a separate feasibility constraint. It converts IT
-        load into facility load. In the QUBO, that means PUE modifies the energy
-        cost term and, if desired, the peak/load-shaping term. With constant or
-        exogenous PUE, this is just a time-dependent multiplier on IT load:
-      </p>
-      <div class="formula">
-        \[
-        H_{energy}^{PUE-fixed}
-        =
-        \sum_t c_t\Delta t\ PUE_t L^{IT}_t(x)
-        \]
-        \[
-        H_{peak}^{PUE-fixed}
-        =
-        \lambda_P
-        \sum_t
-        \left(PUE_t L^{IT}_t(x)\right)^2
-        \]
-      </div>
-      <p>
-        In this fixed-PUE case, both terms remain valid QUBO terms:
-        \(H_{energy}^{PUE-fixed}\) is linear in the binary assignment variables,
-        and \(H_{peak}^{PUE-fixed}\) is quadratic.
-      </p>
-      <p>
-        With affine utilization-dependent PUE, PUE itself depends on the selected
-        schedule because utilization depends on \(L^{IT}_t(x)\). This turns
-        facility energy into a quadratic expression in the same binary assignment
-        variables, without introducing additional QUBO variables:
-      </p>
-      <div class="formula">
-        \[
-        PUE_t(x)=
-        PUE_{low}
-        -
-        \frac{\beta}{L^{IT}_{max}}L^{IT}_t(x)
-        \]
-        \[
-        P^{fac}_t(x)=
-        PUE_{low}L^{IT}_t(x)
-        -
-        \frac{\beta}{L^{IT}_{max}}\left(L^{IT}_t(x)\right)^2
-        \]
-      </div>
-      <p>
-        Therefore the PUE-aware facility-energy Hamiltonian is:
-      </p>
-      <div class="formula">
-        \[
-        \boxed{
-        H_{facility}
-        =
-        \sum_{t\in\mathcal{T}}
-        c_t\Delta t
-        \left[
-        PUE_{low}L^{IT}_t(x)
-        -
-        \frac{\beta}{L^{IT}_{max}}
-        \left(L^{IT}_t(x)\right)^2
-        \right]
-        }
-        \]
-      </div>
-      <p>
-        This term replaces the simple energy Hamiltonian when the utilization-
-        dependent PUE model is active. The linear part charges each selected
-        assignment for facility energy. The quadratic part captures the PUE
-        efficiency gain from simultaneous load. Because that quadratic coefficient
-        is negative, it can encourage consolidation; the base peak proxy and GPU
-        constraints are therefore essential counterbalances:
-      </p>
-      <div class="formula">
-        \[
-        H_{facility}+H_{peak}
-        =
-        \sum_t
-        \left[
-        c_t\Delta t PUE_{low}L^{IT}_t(x)
-        +
-        \left(
-        \lambda_P
-        -
-        c_t\Delta t\frac{\beta}{L^{IT}_{max}}
-        \right)
-        \left(L^{IT}_t(x)\right)^2
+        \lambda_P\left(\sum_r \ell_{r,t}x_r\right)^2
+        =\lambda_P\left[
+        \sum_r\ell_{r,t}^2x_r
+        +\sum_r\sum_{q\ne r}\ell_{r,t}\ell_{q,t}x_rx_q
         \right]
         \]
       </div>
+      <p>
+        where \(\ell_{r,t}=PUE_t p_i a_{i,s,t}\) for assignment option
+        \(r=(i,k,s)\). The positive interactions make simultaneous load more
+        expensive than spread load.
+      </p>
+    </section>
+
+    <section id="pue">
+      <h2>5. PUE Integration</h2>
+      <p>
+        PUE converts IT load into facility load. It is not modeled as a separate
+        feasibility constraint in the QUBO; it modifies the cost terms.
+      </p>
+
+      <h3>5.1 Fixed or Exogenous PUE</h3>
+      <p>
+        With fixed or hourly exogenous PUE, PUE is just a known multiplier:
+      </p>
+      <div class="formula">
+        \[
+        P_t^{fac}(x)=PUE_tL_t^{IT}(x)
+        \]
+      </div>
+      <p>
+        Therefore both energy and peak remain QUBO-compatible:
+      </p>
+      <div class="formula">
+        \[
+        H_{energy}^{fixed}=\sum_t c_t\Delta t\,PUE_tL_t^{IT}(x)
+        \]
+        \[
+        H_{peak}^{fixed}=\lambda_P\sum_t\left(PUE_tL_t^{IT}(x)\right)^2
+        \]
+      </div>
+
+      <h3>5.2 Load-Dependent PUE Energy</h3>
+      <p>
+        The notebook also includes an optional affine utilization-dependent PUE
+        energy model:
+      </p>
+      <div class="formula">
+        \[
+        PUE_t(x)=PUE_{high}-(PUE_{high}-PUE_{low})
+        \frac{L_t^{IT}(x)}{L_{max}^{IT}}
+        \]
+      </div>
+      <p>Substituting into facility energy gives:</p>
+      <div class="formula">
+        \[
+        H_{facility}=\sum_t c_t\Delta t\left[
+        PUE_{high}L_t^{IT}(x)
+        -
+        \frac{PUE_{high}-PUE_{low}}{L_{max}^{IT}}
+        \left(L_t^{IT}(x)\right)^2
+        \right]
+        \]
+      </div>
+      <p>
+        This remains a QUBO because the first part is linear and the second part
+        is quadratic. However, if we also squared load-dependent facility power
+        in the peak term, the result would become cubic and quartic.
+      </p>
       <div class="callout warning">
-        <strong>Practical warning.</strong> If fixed PUE is used, adding PUE to
-        the peak penalty remains quadratic. If affine utilization-dependent PUE
-        is inserted inside the squared peak penalty,
-        \(\sum_t(P^{fac}_t(x))^2\), the term becomes quartic because
-        \(P^{fac}_t(x)\) already contains \((L^{IT}_t(x))^2\). To keep a true
-        QUBO, we should either use fixed PUE for the peak proxy, keep the peak
-        proxy on IT load, or approximate the utilization-dependent peak effect.
-      </div>
-
-      <h3>4.6 Final Hamiltonian</h3>
-      <p>
-        The compact reduced QUBO Hamiltonian with fixed PUE applied to both
-        energy and peak is:
-      </p>
-      <div class="formula">
+        <strong>QUBO boundary.</strong> Under load-dependent PUE, the peak proxy
+        is kept on IT load:
         \[
-        \boxed{
-        H_{total}
-        =
-        H_{energy}^{PUE-fixed}
-        +
-        H_{assign}
-        +
-        H_{GPU}
-        +
-        H_{peak}^{PUE-fixed}
-        }
+        H_{peak}^{IT}=\lambda_P\sum_t\left(L_t^{IT}(x)\right)^2.
+        \]
+        This avoids quartic terms and keeps the model as a true QUBO.
+      </div>
+    </section>
+
+    <section id="total">
+      <h2>6. Final Hamiltonian</h2>
+      <p>The default fixed-PUE notebook Hamiltonian is:</p>
+      <div class="formula">
+        <span class="formula-label">Fixed-PUE QUBO</span>
+        \[
+        H_{total}^{fixed}
+        =H_{energy}^{fixed}+H_{assign}+H_{GPU}+H_{peak}^{fixed}
+        \]
+      </div>
+      <p>The optional load-dependent PUE variant is:</p>
+      <div class="formula">
+        <span class="formula-label">Load-dependent PUE QUBO</span>
+        \[
+        H_{total}^{load}
+        =H_{facility}+H_{assign}+H_{GPU}+H_{peak}^{IT}
         \]
       </div>
       <p>
-        If utilization-dependent PUE is used for energy cost, replace
-        \(H_{energy}^{PUE-fixed}\) by \(H_{facility}\). In that case, be careful
-        with the peak term: use \(H_{peak}\) on IT load or an approximation if
-        we need to remain inside QUBO.
+        A QUBO solver does not receive these symbolic expressions directly. It
+        receives the expanded coefficient form:
       </p>
-
-      <h3>Developed Form</h3>
       <div class="formula">
         \[
-        \begin{aligned}
-        H_{total}
-        =
-        &
-        \sum_{t}
-        c_t\Delta t\ PUE_t L^{IT}_t(x)\\
-        &
-        +
-        \lambda_A
-        \sum_i
-        \left[
-        \sum_{\substack{(k,s),(k',s')\in\mathcal{A}_i\\(k,s)\ne(k',s')}}
-        x_{i,k,s}x_{i,k',s'}
-        -
-        \sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}
-        \right]\\
-        &
-        +
-        \lambda_G
-        \sum_{k,t}
-        \left(
-        \sum_{i,s}
-        g_i a_{i,s,t}x_{i,k,s}
-        +
-        \sum_{b=0}^{B_k-1}2^b y_{k,t,b}
-        -
-        G_k
-        \right)^2\\
-        &
-        +
-        \lambda_P
-        \sum_t
-        \left(PUE_t L^{IT}_t(x)\right)^2.
-        \end{aligned}
+        H(z)=q_0+\sum_r q_rz_r+\sum_{r<q}q_{r,q}z_rz_q
         \]
       </div>
-
       <div class="callout success">
-        <strong>Implementation interpretation.</strong> D-Wave, QAOA, or a
-        classical QUBO solver receives only expanded linear and quadratic
-        coefficients. The activity terms \(a_{i,s,t}\), prices, powers, and GPU
-        demands are preprocessing coefficients used to build the Hamiltonian.
+        <strong>Implementation interpretation.</strong> Prices, PUE values,
+        powers, GPU counts, compatible clusters, and activity coefficients are
+        all preprocessing data. They are used to create linear and quadratic
+        coefficients before calling D-Wave, QAOA, PCE, tensor networks, or any
+        other QUBO-compatible solver.
       </div>
+    </section>
+
+    <section id="validation">
+      <h2>7. Progressive Validation Flow</h2>
+      <p>
+        The notebook validates the Hamiltonian one term at a time. This is
+        important because a QUBO can be syntactically valid but conceptually
+        wrong if one penalty is expanded incorrectly.
+      </p>
+      <table>
+        <tr><th>Step</th><th>Hamiltonian included</th><th>Expected behavior</th></tr>
+        <tr><td>1</td><td>\(H_{energy}\)</td><td>No jobs are scheduled because energy cost is positive.</td></tr>
+        <tr><td>2</td><td>\(H_{energy}+H_{assign}\)</td><td>Every job is scheduled exactly once, but GPU overloads may occur.</td></tr>
+        <tr><td>3</td><td>\(+H_{GPU}\)</td><td>Schedules respect GPU capacity using slack variables.</td></tr>
+        <tr><td>4</td><td>\(+H_{peak}\)</td><td>Simultaneous load becomes less attractive when the peak weight is strong enough.</td></tr>
+      </table>
+      <p>
+        Decoded samples must always be checked for assignment feasibility and
+        resource feasibility. Low QUBO energy is not enough if penalty weights
+        are too weak or if the decoded schedule violates constraints.
+      </p>
+    </section>
+
+    <section id="size">
+      <h2>8. QUBO Size and Connectivity Growth</h2>
+      <p>
+        The number of binary variables is driven by jobs, compatible clusters,
+        feasible start slots, time slots, and GPU slack bits.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Assignment variables</span>
+        \[
+        N_x=\sum_i |\mathcal{K}_i|\,|\mathcal{S}_i|
+        \]
+      </div>
+      <p>
+        If job \(i\) has \(m_i=|\mathcal{K}_i||\mathcal{S}_i|\) feasible
+        assignment options, the assignment penalty creates:
+      </p>
+      <div class="formula">
+        \[
+        \binom{m_i}{2}
+        \]
+      </div>
+      <table>
+        <tr><th>Options for one job \(m_i\)</th><th>Quadratic interactions \(\binom{m_i}{2}\)</th></tr>
+        <tr><td>2</td><td>1</td></tr>
+        <tr><td>4</td><td>6</td></tr>
+        <tr><td>10</td><td>45</td></tr>
+        <tr><td>20</td><td>190</td></tr>
+      </table>
+      <p>
+        Variables may grow linearly when one dimension is varied alone, but
+        quadratic interactions can grow much faster. This matters for quantum
+        hardware because interactions are couplers. Dense local subgraphs can
+        require many more physical qubits than the logical variable count alone
+        suggests.
+      </p>
     </section>
   </main>
 </div>
