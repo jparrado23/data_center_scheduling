@@ -13,9 +13,10 @@ The current source-of-truth model is a Gurobi MILP. It chooses:
   discharge;
 - the resulting grid-import peak used for demand charges.
 
-The project is also preparing heuristic and quantum comparisons: genetic
-algorithm baselines, QUBO formulations, QAOA characterization, quantum
-annealing, and hybrid approaches.
+The project is also preparing heuristic, quantum, and quantum-inspired
+comparisons: genetic algorithm baselines, reduced QUBO formulations, simulated
+annealing, QAOA characterization, Pauli Correlation Encoding, tensor-network
+methods, quantum annealing, and hybrid approaches.
 
 ## Model At A Glance
 
@@ -75,9 +76,110 @@ src/heuristic/         Classical heuristic placeholders and baselines
 src/instance_generator/
                        Feasible-by-construction synthetic generator
 src/milp/              Gurobi MILP model and solver wrapper
-src/quantum/           QUBO, QAOA, and annealing scaffolding
+src/quantum/           Reduced QUBO, tensor-network, QAOA, and annealing code
 tests/                 Unit and regression tests
 ```
+
+## Quantum Approach
+
+The quantum track does **not** attempt to translate the full MILP directly into
+QUBO. The full MILP contains continuous dispatch variables, battery state of
+charge, renewable/grid split decisions, and peak-charge logic. Encoding all of
+that exactly as binary variables would make the first quantum problem too large
+and difficult to validate.
+
+Instead, the current quantum approach uses a reduced scheduling QUBO whose
+purpose is to test whether quantum or quantum-inspired methods can reproduce
+good feasible schedules on small but combinatorially difficult instances.
+
+### Reduced QUBO Scope
+
+The reduced QUBO uses binary variables:
+
+```text
+x[job, cluster, start]
+```
+
+where the variable is 1 when a job is assigned to a compatible cluster and
+starts at a specific time slot.
+
+The implemented QUBO includes:
+
+- fixed or exogenous-PUE energy cost;
+- one-hot assignment penalties so every job is scheduled exactly once;
+- explicit job-to-cluster compatibility by omitting incompatible variables;
+- aggregate GPU-capacity penalties using binary unused-GPU slack variables;
+- a fixed-PUE squared load/peak-smoothing proxy.
+
+The first QUBO intentionally excludes:
+
+- exact renewable/grid dispatch variables;
+- exact contracted peak billing variables;
+- battery charge, discharge, and SOC dynamics;
+- CPU and memory capacity penalties;
+- full load-dependent PUE in the peak term.
+
+Those features remain in the MILP baseline. Decoded QUBO schedules must
+therefore be validated against the same feasibility checks used elsewhere in
+the project.
+
+### Why This Reduction Is Useful
+
+The QUBO size grows quickly even before modeling the full MILP:
+
+```text
+assignment variables ~= jobs x compatible clusters x feasible starts
+slack variables      ~= clusters x time slots x GPU slack bits
+```
+
+The number of quadratic interactions can grow faster than the number of
+variables. For example, if one job has `m` feasible assignment options, its
+assignment penalty creates:
+
+```text
+m choose 2
+```
+
+pairwise interactions among those options. This matters for both D-Wave and
+gate-based methods because hardware must represent not only logical variables,
+but also the couplers or Hamiltonian terms between them.
+
+### Implemented Quantum Components
+
+- `src/quantum/qubo_builder.py` builds the reduced scheduling QUBO, exports a
+  `dimod.BinaryQuadraticModel`, decodes binary samples, and validates decoded
+  schedules.
+- `notebooks/13_qubo_step_by_step_formulation.ipynb` rebuilds the QUBO term by
+  term for explanation and validation. It progressively solves:
+  cost only, cost plus assignment, cost plus GPU capacity, and cost plus peak
+  smoothing using D-Wave Ocean's simulated annealing sampler when available.
+- `src/quantum/tensor_network.py` solves small QUBOs exactly through min-sum
+  tensor-network variable elimination. This is a quantum-inspired reference
+  method and a way to study whether QUBO graph structure is exploitable.
+- `tests/test_qubo_builder.py` and `tests/test_tensor_network_solver.py`
+  provide regression coverage for QUBO construction, compatibility handling,
+  decoding, feasibility validation, and tensor-network correctness.
+
+### Planned Quantum Experiments
+
+The current roadmap is:
+
+1. Use tiny hand-checkable QUBOs to prove each Hamiltonian term behaves as
+   expected.
+2. Use reduced hard instances to compare Gurobi, GA, D-Wave-style simulated
+   annealing, and exact tensor-network contraction where tractable.
+3. Convert the reduced QUBO to Ising form for QAOA experiments on very small
+   instances.
+4. Implement Pauli Correlation Encoding as a qubit-reduction experiment for
+   QUBOs that are too large for direct one-variable-per-qubit QAOA.
+5. Add D-Wave hardware execution when solver access is available, using
+   simulator results as a fallback.
+6. Explore hybrid decomposition, where classical optimization handles the full
+   MILP scale and quantum/QUBO methods target selected difficult subproblems.
+
+The key evaluation rule is that every quantum output must be decoded back into
+a schedule and checked for assignment and resource feasibility before comparing
+costs.
 
 ## Setup
 
@@ -96,6 +198,17 @@ The commands below assume the local conda environment used during development:
 ```bash
 conda run -n quantum_py312 ...
 ```
+
+The core project does not require D-Wave Ocean packages. For the QUBO notebook
+sections that export or sample a `dimod.BinaryQuadraticModel`, install the
+optional Ocean dependencies in the active environment:
+
+```bash
+pip install dimod dwave-samplers
+```
+
+D-Wave hardware execution will also require `dwave-system` and Leap
+credentials; the current notebook path uses local simulation when available.
 
 ## Quick Start
 
@@ -259,6 +372,18 @@ Run Gurobi stress tests on generated Alibaba-calibrated instances:
 jupyter notebook notebooks/08_gurobi_generated_instance_stress_test.ipynb
 ```
 
+Study the reduced QUBO formulation step by step:
+
+```bash
+jupyter notebook notebooks/13_qubo_step_by_step_formulation.ipynb
+```
+
+Run quantum hard-instance benchmark experiments:
+
+```bash
+jupyter notebook notebooks/11_quantum_hard_instance_benchmarks.ipynb
+```
+
 ## Input Schema
 
 The model-ready tables use these core columns.
@@ -333,7 +458,10 @@ battery_discharge_efficiency
 - [Tiny and absurd validation plan](docs/TINY_ABSURD_INSTANCE_VALIDATION.md)
 - [Project roadmap](docs/PROJECT_ROADMAP.md)
 - [QUBO formulation notes](docs/QUBO_FORMULATION.md)
+- [QUBO Hamiltonian formulation](docs/qubo_hamiltonian_formulation.html)
 - [Quantum agent architecture](docs/QUANTUM_AGENT_ARCHITECTURE.md)
+- [Pauli Correlation Encoding approach](docs/PCE_APPROACH.md)
+- [Tensor-network QUBO study guide](docs/tensor_network_qubo_study_guide.html)
 - [Data notes](data/README.md)
 
 ## Tests
@@ -346,7 +474,9 @@ conda run -n quantum_py312 pytest
 
 Current coverage includes data import, scenario building, resource
 compatibility, PUE behavior, optional battery behavior, metrics, and the
-instance generator.
+instance generator. Quantum-specific tests cover reduced QUBO construction,
+decoded-schedule validation, explicit compatibility handling, and exact
+tensor-network contraction on small QUBOs.
 
 ## Current State
 
@@ -360,6 +490,9 @@ Implemented:
 - optional battery modeling;
 - feasible-by-construction synthetic generator;
 - GA baseline notebook;
+- reduced QUBO builder, decoder, and D-Wave Ocean BQM export;
+- step-by-step QUBO explanation notebook with simulated annealing execution;
+- exact tensor-network solver for small QUBOs;
 - schedule, hourly, cluster, and metric extraction;
 - regression tests for the current formulation.
 
@@ -367,6 +500,7 @@ Under development:
 
 - Alibaba-derived instance generator redesign;
 - broader MILP versus GA benchmarking;
-- QUBO formulation update for the current resource model;
-- QAOA and annealing experiments;
+- QAOA experiments on the reduced Ising/QUBO model;
+- Pauli Correlation Encoding implementation;
+- D-Wave hardware execution path;
 - hybrid classical/quantum decomposition strategy.
