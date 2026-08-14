@@ -101,7 +101,8 @@ Compatibility checks:
 - required GPU count fits partition GPU capacity,
 - required GPU type is allowed by the partition GPU type,
 - CPU and memory fit aggregate partition capacities,
-- online-inference reservations are respected,
+- legacy online-inference reservation fields are currently ignored by the
+  resource-profile compatibility model,
 - legacy `alpha_B`, `alpha_C`, `alpha_D` rules are respected when present.
 
 Reference: `docs/RESOURCE_COMPATIBILITY.md`.
@@ -195,7 +196,8 @@ Current scope boundaries:
 - No rolling-horizon scheduling.
 - No uncertainty/forecast-error modeling.
 - No priority/tardiness layer yet.
-- QUBO/QAOA has not been updated to the full resource/PUE/battery model.
+- QUBO/QAOA remains a reduced model, with full resource/PUE/battery evaluation
+  handled by post-decode validation and shared metrics.
 
 ---
 
@@ -254,7 +256,7 @@ sum_{k,s} x[i,k,s] = 1
 Compatibility:
 
 ```text
-x[i,k,s] exists only when resources and operational rules allow job i on partition k
+x[i,k,s] exists only when resources and supported legacy rules allow job i on partition k
 ```
 
 Partition capacity:
@@ -302,7 +304,7 @@ Experiment controls:
 - Renewable price.
 - Grid price scenario.
 - Peak price and contracted grid-import threshold.
-- GPU constraints on/off for ablation.
+- CPU and memory constraints on/off for ablation.
 
 ---
 
@@ -359,7 +361,7 @@ Recommended path:
 
 1. Start with a simplified assignment/timing QUBO.
 2. Validate decoded schedules against the full MILP.
-3. Add capacity and energy penalties gradually.
+3. Add GPU-capacity slack, energy, and peak-proxy penalties gradually.
 4. Consider decomposition:
    - between compute partitions,
    - within one GPU-type pool,
@@ -385,7 +387,7 @@ Can simplified QUBO or hybrid methods reproduce good feasible schedules on small
    - or node/GPU-level decomposition.
 4. Calibrate CPU, memory, duration, and GPU-type assumptions using Alibaba traces.
 5. Run workload-by-energy scenario matrix with and without battery.
-6. Update QUBO notes only after the classical formulation stabilizes.
+6. Extend QUBO notes only when adding new encoded constraints.
 
 ---
 

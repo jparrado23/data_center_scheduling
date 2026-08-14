@@ -108,6 +108,12 @@ Current compatibility checks:
    cluster.gpu_type in job.gpu_type_required
    ```
 
+   In the reduced QUBO builder, an explicit `compatible_clusters` field takes
+   precedence over GPU-type metadata. This is used for generated instances that
+   already carry a final operational compatibility set. The MILP builder does
+   not currently consume `compatible_clusters`; it uses resource metadata plus
+   legacy alpha columns.
+
 4. If CPU constraints are enabled and requirements are present, they must fit:
 
    ```text
@@ -166,8 +172,11 @@ disable the resource constraint.
 useful for reporting, analysis, and business interpretation.
 
 If business rules must forbid a job from a partition even when resources fit,
-encode that rule through a future explicit operational-compatibility table. Do
-not reuse invented workload labels as compatibility constraints.
+encode that rule through explicit operational compatibility data. For QUBO
+experiments this can be the `compatible_clusters` field. For the MILP path, use
+resource metadata or the supported legacy alpha columns until the same explicit
+compatibility field is wired into the MILP builder. Do not reuse invented
+workload labels as compatibility constraints.
 
 ## Limitations
 

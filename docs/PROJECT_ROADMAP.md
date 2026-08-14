@@ -67,7 +67,8 @@ into final experiment instances.
 
 - The current MILP is aggregate compute-partition scheduling, not node-level
   placement or individual-GPU bin packing.
-- PUE is implemented as a scalar multiplier from IT load to facility load.
+- PUE is implemented as a multiplier from IT load to facility load. It can be a
+  scalar from `ModelConfig` or an hourly `pue` column in `hourly_inputs.csv`.
 - Battery storage is optional and simplified: no degradation cost and no binary
   same-hour charge/discharge exclusion.
 - Contracted power is modeled as a soft grid-import billing threshold, not a

@@ -116,19 +116,22 @@ Expected behavior:
 
 - Model construction raises a clear error before optimization.
 
-### 7. Inference-Reserved Partition
+### 7. Legacy Reservation Fields Are Ignored
 
-Purpose: verify online inference reservation logic.
+Purpose: verify that legacy operational fields do not silently override the
+resource-profile compatibility model.
 
 Setup:
 
 - One partition has `reserved_for_online_inference = True`.
-- A training job and an inference job are tested separately.
+- A training job fits the partition's GPU type, GPU count, CPU, memory, and
+  power capacity.
 
 Expected behavior:
 
-- Training job cannot use the reserved partition.
-- `inference` and `online_inference` labels are allowed.
+- The job can still use the partition.
+- Reservation policy must be represented through explicit compatibility data
+  before it affects optimization.
 
 ## Capacity Cases
 

@@ -357,7 +357,7 @@ hour,renewable_available,grid_price
 Optional:
 
 ```text
-baseline_load
+baseline_load,pue
 ```
 
 `ModelConfig` includes:

@@ -56,7 +56,8 @@ Initial scope:
 - Enforce or penalize each job being scheduled exactly once.
 - Include feasible start windows.
 - Include aggregate GPU capacity.
-- Include aggregate IT power capacity.
+- Treat aggregate IT power capacity as a decoded-schedule validation check
+  unless a dedicated power-capacity penalty is added.
 - Include PUE as a deterministic multiplier in energy coefficients.
 - Decode QUBO samples back into schedules.
 
@@ -66,6 +67,7 @@ Postpone initially:
 - Exact renewable/grid dispatch.
 - Exact peak-demand billing.
 - CPU and memory capacity.
+- Exact aggregate IT power-capacity encoding.
 - 15-minute time granularity.
 
 Required outputs:
@@ -242,8 +244,9 @@ docs/QUBO_FORMULATION.md.
 
 Task:
 Propose the smallest QUBO formulation that preserves job assignment, start time,
-GPU-type compatibility, aggregate GPU capacity, aggregate power capacity, and a
-PUE-adjusted energy proxy.
+GPU-type or explicit cluster compatibility, aggregate GPU capacity, and a
+PUE-adjusted energy proxy. Treat aggregate power capacity as a post-decode
+validation requirement unless you propose an explicit penalty for it.
 
 Return:
 1. variables,

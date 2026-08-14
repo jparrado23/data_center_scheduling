@@ -1,134 +1,130 @@
 # QUBO Formulation
 
-> Current status: this document is a legacy/simplified QUBO draft. The
-> canonical MILP has since moved to a resource-profile compute-partition model
-> with aggregate GPU/CPU/memory constraints, PUE, optional battery storage, and
-> grid-import peak charges. Do not treat this QUBO document as an exact mapping
-> of the current MILP. Use it only as a starting point for a smaller assignment
-> and timing QUBO.
+> Current status: this document describes the implemented reduced QUBO in
+> `src/quantum/qubo_builder.py`. The canonical MILP remains the source of truth
+> for full feasibility and final cost evaluation. The reduced QUBO intentionally
+> omits renewable/grid dispatch variables, exact contracted-peak billing,
+> battery dynamics, and exact CPU/memory/power capacity penalties.
 
-This document derives the first QUBO draft for the AI data-center scheduling
-problem. The goal is to map the validated MILP structure into an unconstrained
-binary quadratic objective that can be tested with classical QUBO solvers before
-any quantum or hybrid backend is used.
-
-The formulation below is intentionally conservative. It keeps the same
-non-preemptive start-time assignment used by the MILP and converts hard
-constraints into quadratic penalties.
+This document derives the reduced QUBO used for early quantum and
+quantum-inspired experiments on the data-center scheduling problem. It keeps
+the MILP's non-preemptive start-time assignment structure, omits incompatible
+job-partition choices, adds exact one-hot assignment penalties, encodes
+aggregate GPU capacity with binary unused-capacity slack, and adds linear
+fixed-PUE energy plus a quadratic peak-smoothing proxy.
 
 ## 1. Scope
 
-The first simplified QUBO may encode:
+The implemented reduced QUBO encodes:
 
 1. job assignment,
-2. resource/partition compatibility,
-3. aggregate partition capacity,
-4. contracted grid-import pressure,
-5. peak-demand pressure based on grid import or a load proxy,
-6. time-varying energy cost,
-7. an optional peak-load proxy.
+2. feasible start windows,
+3. resource or explicit cluster compatibility by variable omission,
+4. linear fixed-PUE energy cost using an effective time price,
+5. aggregate GPU capacity with binary slack variables,
+6. a fixed-PUE facility-load smoothing proxy.
 
-The first QUBO should not yet try to encode every MILP feature exactly. In
-particular, exact renewable allocation and exact peak-demand billing require
-auxiliary binary variables. Those can be added after the core scheduling QUBO is
-validated.
-
-The full resource/PUE/battery MILP should remain the source of truth for
-feasibility and cost while QUBO experiments are developed.
+The full MILP should remain the source of truth for feasibility and cost while
+QUBO experiments are developed. Exact renewable/grid dispatch, exact
+contracted-peak billing, battery state of charge, and exact CPU/memory/power
+capacity penalties require additional variables or higher-order encodings.
 
 ## 2. Sets and Parameters
 
-Use the same sets as the MILP:
+Use the same high-level sets as the MILP:
 
 - $\mathcal{I}$: jobs.
-- $\mathcal{K}$: clusters.
+- $\mathcal{K}$: compute partitions.
 - $\mathcal{T}$: hourly time slots.
 - $\mathcal{S}_i$: feasible start slots for job $i$.
 
 For each job:
 
-- $p_i$: job power in MW.
+- $p_i$: job IT power in MW.
 - $d_i$: duration in hours.
+- $g_i$: required GPU count.
 - $A_{i,s,t}$: known activity indicator equal to 1 if job $i$ is active at hour
   $t$ after starting at hour $s$.
 
-For each cluster:
+For each partition:
 
-- $P^{cluster}_k$: cluster power capacity.
+- $G_k$: aggregate GPU capacity.
 - $C_{i,k}$: compatibility indicator.
 
 For each hour:
 
 - $\pi^{grid}_t$: grid electricity price.
-- $G_t$: available renewable power.
+- $G^{ren}_t$: available renewable power.
+- $\eta^{pue}_t$: fixed or exogenous PUE multiplier.
 
 Other parameters:
 
-- $P^{contracted}$: soft contracted-power threshold for peak excess charges.
-- $B_t$: fixed non-shiftable baseline load, such as inference.
+- $\pi^{ren}$: renewable price.
 - $\Delta t$: time-slot length, normally 1 hour.
-- $\lambda_{assign}$, $\lambda_{cluster}$, $\lambda_{peak}$, and
-  $\lambda_{compat}$: penalty weights.
+- $\lambda_{assign}$, $\lambda_{gpu}$, and $\lambda_{peak}$: penalty weights.
 
 ## 3. Binary Decision Variables
 
-The core binary variable is:
+The core assignment variable is:
 
 $$
 x_{i,k,s} \in \{0,1\}
 $$
 
-where:
+where $x_{i,k,s}=1$ if job $i$ starts on partition $k$ at hour $s$.
+
+Only create $x_{i,k,s}$ for $s \in \mathcal{S}_i$ and compatible job-partition
+pairs. In the current builder, `compatible_clusters` takes precedence when it
+is provided; otherwise compatibility falls back to GPU count, GPU type, CPU, and
+memory metadata.
+
+GPU-capacity slack variables are:
 
 $$
-x_{i,k,s}=1
+y_{k,t,b} \in \{0,1\}
 $$
 
-if job $i$ starts on cluster $k$ at hour $s$.
-
-Only create $x_{i,k,s}$ for $s \in \mathcal{S}_i$. Incompatible cluster choices
-can either be omitted from the variable set or included and penalized. Omitting
-them is smaller and should be preferred for implementation.
+where bit $b$ represents $2^b$ unused GPUs on partition $k$ during time slot
+$t$.
 
 ## 4. Load Expressions
 
-Cluster load is a linear expression in the binary variables:
-
-$$
-L_{k,t}(x)
-=
-\sum_{i \in \mathcal{I}}
-\sum_{s \in \mathcal{S}_i}
-p_i A_{i,s,t}x_{i,k,s}
-$$
-
-Flexible load is:
+Flexible IT load is:
 
 $$
 L^{flex}_t(x)
 =
-\sum_{k \in \mathcal{K}} L_{k,t}(x)
+\sum_{i,k,s}
+p_i A_{i,s,t}x_{i,k,s}
 $$
 
-Total facility load is $L_t(x)=B_t+L^{flex}_t(x)$. These expressions are reused
-in the objective and penalties.
+Facility load after PUE, restricted to the flexible jobs encoded in the QUBO,
+is:
+
+$$
+L^{facility,QUBO}_t(x)
+=
+\eta^{pue}_t L^{flex}_t(x)
+$$
+
+Fixed baseline load is better handled in post-decode cost evaluation because it
+does not affect assignment choice unless coupled to dispatch or exact peak
+billing.
 
 ## 5. Energy-Cost Term
 
-The simplest QUBO energy-cost term approximates renewable/grid economic
-dispatch. Fixed baseline load must be included in the hourly demand before this
-energy cost is computed.
+The implemented QUBO energy term approximates renewable/grid dispatch with an
+effective hourly price:
 
 $$
-H_{energy}(x)
-=
-\sum_{t \in \mathcal{T}}
-\pi^{grid}_t Q_t(x)\Delta t
+\pi^{eff}_t =
+\begin{cases}
+\min(\pi^{grid}_t,\pi^{ren}), & G^{ren}_t > 0 \\
+\pi^{grid}_t, & G^{ren}_t = 0
+\end{cases}
 $$
 
-where $Q_t(x)=\max(0,L_t(x)-G_t)$ is the grid residual after contracted
-renewable energy is consumed. A simple effective-price approximation can be
-expanded over scheduling variables:
+The resulting linear term is:
 
 $$
 H_{energy}(x)
@@ -136,25 +132,14 @@ H_{energy}(x)
 \sum_{i,k,s}
 \left(
 \sum_{t \in \mathcal{T}}
-\pi^{grid}_t p_i A_{i,s,t}\Delta t
+\pi^{eff}_t \eta^{pue}_t p_i A_{i,s,t}\Delta t
 \right)
 x_{i,k,s}
 $$
 
-This approximation is linear and therefore QUBO-compatible.
-
-Renewable availability can be incorporated in three increasing levels of
-fidelity:
-
-1. Use an adjusted hourly price $\pi^{eff}_t$ that approximates economic
-   renewable/grid dispatch.
-2. Add auxiliary binary variables for renewable consumption or curtailment and
-   model the renewable/grid split explicitly.
-3. Compare simplified QUBO schedules against exact MILP economic-dispatch
-   accounting in post-processing.
-
-The exact renewable/grid split is closest to the MILP but increases variable
-count and coefficient-scaling risk.
+This is intentionally a proxy. The exact MILP renewable/grid split is recovered
+only by solving or re-evaluating the decoded schedule under the shared project
+evaluator.
 
 ## 6. Assignment Penalty
 
@@ -188,163 +173,99 @@ terms.
 
 ## 7. Compatibility Handling
 
-Preferred implementation: omit incompatible variables from the QUBO:
+Incompatible variables are omitted from the QUBO:
 
 $$
 x_{i,k,s} \text{ exists only if } C_{i,k}=1
 $$
 
-If incompatible variables are kept for debugging or uniform indexing, add:
+For generated instances with an explicit `compatible_clusters` field, that
+field is treated as the final compatibility relation by the QUBO builder and
+stale GPU-type metadata is ignored. Otherwise the builder checks GPU count, GPU
+type, CPU, and memory metadata during variable creation.
+
+## 8. GPU Capacity Penalty
+
+Aggregate GPU usage on partition $k$ at time $t$ is:
 
 $$
-H_{compat}(x)
+D^G_{k,t}(x)
 =
-\lambda_{compat}
-\sum_{i,k,s}
-(1-C_{i,k})x_{i,k,s}
+\sum_i\sum_s g_i A_{i,s,t}x_{i,k,s}
 $$
 
-This is a linear penalty that discourages incompatible assignments.
-
-## 8. Capacity Penalties
-
-Cluster capacity is:
+The hard inequality $D^G_{k,t}(x) \leq G_k$ is converted into an equality with
+binary unused-capacity slack:
 
 $$
-L_{k,t}(x) \leq P^{cluster}_k
+D^G_{k,t}(x)+\sum_b2^b y_{k,t,b}=G_k
 $$
 
-In the current MILP, peak demand is billed on maximum grid import above
-contracted power. Older QUBO sketches sometimes used facility load as a proxy;
-that should be treated as an approximation, not the current source-of-truth
-economic model.
-Inequality constraints are not directly QUBO constraints. There are two viable
-encodings for the hard cluster capacity and soft peak-excess terms.
-
-### 8.1 Soft Overload Penalty
-
-A simple first draft penalizes squared overload pressure:
+The QUBO penalty is:
 
 $$
-H_{cluster}(x)
+H_{GPU}(x)
 =
-\lambda_{cluster}
+\lambda_{gpu}
 \sum_{k,t}
 \left(
-\max(0, L_{k,t}(x)-P^{cluster}_k)
+D^G_{k,t}(x)+\sum_b2^b y_{k,t,b}-G_k
 \right)^2
 $$
 
-and:
+When GPU usage is at or below capacity, a non-negative slack assignment can
+make the penalty zero. When usage exceeds capacity, no non-negative slack can
+repair the equality, so the assignment is penalized.
 
-$$
-H_{contracted}(x)
-=
-\lambda_{contracted}
-\sum_t
-\left(
-\max(0, L_t(x)-P^{contracted})
-\right)^2
-$$
-
-The contracted-power term is a soft economic peak-excess penalty. Separately,
-a smoothing objective can use:
-
-$$
-H_{peak-load}(x)
-=
-\lambda_{peak}
-\sum_t
-\left(L_t(x)\right)^2
-$$
-
-This is a load-smoothing proxy, not an exact max-demand charge. Exact QUBO
-encoding of the maximum load requires auxiliary threshold or selection bits.
-
-### 8.2 Pairwise Conflict Approximation
-
-For an initial practical QUBO, capacity can be approximated by penalizing pairs
-of assignments that overload a cluster or the full data center when active
-together.
-
-For each pair of assignment variables $a=(i,k,s)$ and $b=(j,k,s')$ active in
-the same cluster and hour, add a quadratic penalty when their combined load
-contributes to capacity pressure:
-
-$$
-H_{cluster-pair}(x)
-=
-\sum_{a<b}
-q^{cluster}_{a,b} x_a x_b
-$$
-
-with $q^{cluster}_{a,b} > 0$ when the pair is active in the same cluster-hour.
-
-This approximation is smaller and easier to implement, but it does not exactly
-enforce multi-job capacity constraints. It should be tested against MILP
-feasibility checks after decoding.
+CPU, memory, and IT power capacity are currently validated after decoding with
+`validate_decoded_schedule`. They are not encoded as QUBO penalties yet.
 
 ## 9. Peak-Load Proxy
 
-The MILP peak term uses:
+The MILP peak charge uses maximum grid import above contracted power:
 
 $$
-P^{peak} = \max_t L_t(x)
+P^{peak} = \max_t Q_t
 $$
 
-Exact QUBO encoding needs auxiliary variables for peak thresholds or binary
-load levels. For the first QUBO, use a quadratic load-smoothing proxy:
+Exact QUBO encoding needs dispatch and peak-threshold auxiliary variables. The
+implemented reduced QUBO uses a quadratic fixed-PUE load-smoothing proxy:
 
 $$
-H_{peak-proxy}(x)
+H_{peak}(x)
 =
 \lambda_{peak}
 \sum_{t \in \mathcal{T}}
-L_t(x)^2
+\left(
+\eta^{pue}_t
+\sum_{i,k,s}p_i A_{i,s,t}x_{i,k,s}
+\right)^2
 $$
 
 This discourages concentrated load and tends to reduce peak demand, but it is
-not identical to a billing maximum. Exact peak encoding should be added only
-after the core assignment and capacity QUBO is stable.
+not identical to the MILP billing maximum.
 
-## 10. Full First-Draft QUBO
+## 10. Full Reduced QUBO
 
-The initial QUBO objective is:
+The implemented objective is:
 
 $$
-\min_x
-H(x)
+\min_{x,y}
+H(x,y)
 =
 H_{energy}(x)
 + H_{assign}(x)
-+ H_{capacity}(x)
-+ H_{peak-proxy}(x)
++ H_{GPU}(x,y)
++ H_{peak}(x)
 $$
 
-where $H_{capacity}$ is either:
-
-- an auxiliary-bit inequality encoding, or
-- a pairwise conflict approximation followed by feasibility repair.
-
-Recommended first implementation:
-
-$$
-H(x)
-=
-H_{energy}(x)
-+ H_{assign}(x)
-+ H_{cluster-pair}(x)
-+ H_{contracted}(x)
-+ H_{peak-load}(x)
-+ H_{peak-proxy}(x)
-$$
-
-Then decode the selected schedule and validate it with the existing MILP-style
-feasibility checks.
+After solving, decode selected assignment variables into a schedule and validate
+the schedule against assignment, start-window, compatibility, GPU, CPU, memory,
+and power feasibility checks.
 
 ## 11. Variable Count
 
-The core variable count is:
+The assignment-variable count is:
 
 $$
 N_x =
@@ -354,15 +275,15 @@ N_x =
 |\mathcal{K}^{compatible}_i|
 $$
 
-The shared workload samples report approximate QUBO variable counts:
+The builder also adds GPU slack variables. For each cluster-hour with active
+assignment choices, the number of slack bits is:
 
-- `jobs_light.csv`: 1,628 variables.
-- `jobs_tense.csv`: 435 variables.
-- `jobs_limit.csv`: 175 variables.
+$$
+\lceil\log_2(G_k+1)\rceil
+$$
 
-This means the light workload is not necessarily the easiest QUBO instance. It
-has lower energy demand, but more scheduling freedom and therefore more binary
-variables.
+QUBO size therefore depends on both assignment freedom and the number of
+cluster-hour GPU-capacity constraints that need slack bits.
 
 ## 12. Penalty Scaling
 
@@ -373,10 +294,10 @@ Practical starting rules:
 
 - $\lambda_{assign}$ should be larger than the maximum possible energy-cost
   saving from dropping or duplicating any one job assignment.
-- $\lambda_{cluster}$ should exceed the largest
-  plausible energy-cost saving from overloading capacity in one hour.
-- $\lambda_{peak}$ should be smaller than hard-constraint penalties so it shapes
-  feasible schedules instead of encouraging assignment violations.
+- $\lambda_{gpu}$ should exceed the largest plausible energy-cost or
+  peak-smoothing improvement from overloading GPU capacity in one hour.
+- $\lambda_{peak}$ should be smaller than hard-constraint penalties so it
+  shapes feasible schedules instead of encouraging assignment violations.
 
 All coefficients should be normalized before passing the QUBO to annealing or
 QAOA backends. Large differences between energy prices, MW values, and penalty
@@ -384,16 +305,18 @@ weights can make the QUBO numerically difficult.
 
 ## 13. Implementation Plan
 
+The current implementation follows this path:
+
 1. Build a QUBO coefficient dictionary from processed `jobs.csv`,
    `hourly_inputs.csv`, `clusters.csv`, and `config.json`.
 2. Omit incompatible cluster variables during variable creation.
 3. Add assignment penalties exactly.
-4. Add linear energy-cost coefficients.
-5. Add pairwise cluster penalties and the contracted-power hard-cap penalty.
+4. Add linear fixed-PUE energy-cost coefficients.
+5. Add GPU-capacity penalties with binary unused-capacity slack.
 6. Add the peak-load proxy.
 7. Decode binary samples into schedules.
-8. Reuse existing validation and metrics code to compare decoded QUBO schedules
-   against MILP feasibility and cost.
+8. Reuse validation and metrics code to compare decoded QUBO schedules against
+   MILP feasibility and cost.
 
 ## 14. Open Questions
 
@@ -401,9 +324,7 @@ weights can make the QUBO numerically difficult.
   post-processing in the first version?
 - Should peak demand be approximated with load smoothing or encoded with
   auxiliary threshold variables?
-- Should `jobs_limit.csv` be used as a QUBO benchmark even though many starts
-  are nearly fixed?
-- Should the QUBO use only workload jobs or include fixed inference/facility
-  load as an exogenous hourly profile?
+- Should CPU, memory, and IT power capacity be encoded with slack variables or
+  left as post-decode validation checks for the first benchmark ladder?
 - What coefficient normalization should be used before passing the model to
   each solver backend?
