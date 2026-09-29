@@ -1,0 +1,22 @@
+{
+  "source": "Kalos Pretrain trace",
+  "source_rows": 159,
+  "eligible_rows_after_duration_filter": 159,
+  "max_duration_hours": 10.0,
+  "sampled_jobs": 19,
+  "seed": 22,
+  "horizon_hours": 24,
+  "slot_minutes": 60,
+  "horizon_slots": 24,
+  "node_gpu": 8,
+  "node_capacity": 302,
+  "unit_gpu": 96,
+  "block_gpu": 96,
+  "block_capacity": 25,
+  "gpu_capacity_blocks": 25,
+  "aggregate_node_utilization_upper_bound": 0.25579470198675497,
+  "aggregate_gpu_block_utilization_upper_bound": 0.2833333333333333,
+  "estimated_total_it_energy_mwh": 5.9328,
+  "estimated_total_facility_energy_mwh": 7.416,
+  "note": "Kalos-derived job sizes and durations with synthetic flexibility windows. Node and block demand are both retained."
+}

@@ -1,0 +1,13 @@
+job_id,source_job_id,category,compatible_clusters,received_hour,earliest_start,latest_start,duration,duration_hours_original,raw_gpu_num,node_units_required,node_gpu_equivalent_after_scaling,gpu_count_required,gpu_blocks_required,block_units_required,block_gpu_equivalent_after_scaling,power,power_kw,cpu_required,memory_required_gb
+kalos_pretrain_000,dlc065qmcs4r2rof,pretrain,kalos_a100_pretrain,1,1,3,1,0.6811111111111111,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_001,dlc1d520p0e5w1td,pretrain,kalos_a100_pretrain,16,16,17,1,0.024722222222222222,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_002,dlcr3ud50yvbctdx,pretrain,kalos_a100_pretrain,17,17,19,5,4.603888888888889,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_003,dlc1oyl4hwwqb0ad,pretrain,kalos_a100_pretrain,3,3,7,1,0.5869444444444445,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_004,dlc46wwlg5rgdyxp,pretrain,kalos_a100_pretrain,17,17,18,1,0.03972222222222222,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_005,dlcatmn0ktq0iw8b,pretrain,kalos_a100_pretrain,15,15,16,1,0.008611111111111111,256,32,256,3,3,3,288,0.1024,102.4,,
+kalos_pretrain_006,dlcvpd8udfurcddf,pretrain,kalos_a100_pretrain,9,9,10,1,0.5941666666666666,1024,128,1024,11,11,11,1056,0.4096,409.6,,
+kalos_pretrain_007,dlcfl1mo4zdbdp28,pretrain,kalos_a100_pretrain,11,11,12,1,0.17666666666666667,1024,128,1024,11,11,11,1056,0.4096,409.6,,
+kalos_pretrain_008,dlcdq4mx0z4e2ca4,pretrain,kalos_a100_pretrain,11,11,13,1,0.09444444444444444,1024,128,1024,11,11,11,1056,0.4096,409.6,,
+kalos_pretrain_009,dlc1nq6rycg87yks,pretrain,kalos_a100_pretrain,19,19,20,1,0.006666666666666667,1024,128,1024,11,11,11,1056,0.4096,409.6,,
+kalos_pretrain_010,dlc1ee2ubolb49dw,pretrain,kalos_a100_pretrain,1,1,2,1,0.605,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_011,dlcli9xj8yxk8eob,pretrain,kalos_a100_pretrain,22,22,23,1,0.022222222222222223,96,12,96,1,1,1,96,0.038400000000000004,38.400000000000006,,

@@ -242,3 +242,23 @@ def test_validate_decoded_schedule_catches_missing_assignment():
 
     assert report["feasible"] is False
     assert report["violations"]
+
+
+def test_validate_decoded_schedule_accepts_csv_compatible_cluster_string():
+    jobs = _jobs().copy()
+    jobs["gpu_type_required"] = ""
+    jobs["compatible_clusters"] = "cluster_t4"
+
+    qubo = build_scheduling_qubo(jobs, _hourly(), _clusters(), ModelConfig(delta_t=1.0))
+    sample = np.zeros(qubo.num_variables, dtype=int)
+    for index, variable in enumerate(qubo.variables):
+        if variable.get("variable_type") == "assignment" and (variable["job_id"], variable["start"]) in {
+            ("j1", 0),
+            ("j2", 1),
+        }:
+            sample[index] = 1
+
+    schedule = decode_qubo_sample(qubo, sample)
+    report = validate_decoded_schedule(schedule, jobs, _clusters(), [0, 1])
+
+    assert report["feasible"] is True

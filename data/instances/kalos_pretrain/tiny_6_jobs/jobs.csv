@@ -1,0 +1,7 @@
+job_id,source_job_id,category,compatible_clusters,received_hour,earliest_start,latest_start,duration,duration_hours_original,raw_gpu_num,node_units_required,node_gpu_equivalent_after_scaling,gpu_count_required,gpu_blocks_required,block_units_required,block_gpu_equivalent_after_scaling,power,power_kw,cpu_required,memory_required_gb
+kalos_pretrain_000,dlc1j2rdhgrlycuz,pretrain,kalos_a100_pretrain,11,11,12,1,0.021944444444444444,1024,128,1024,11,11,11,1056,0.4096,409.6,,
+kalos_pretrain_001,dlc1ng8q9xisj7vj,pretrain,kalos_a100_pretrain,12,12,13,1,0.09361111111111112,1024,128,1024,11,11,11,1056,0.4096,409.6,,
+kalos_pretrain_002,dlc12d4hz88qtpgz,pretrain,kalos_a100_pretrain,6,6,10,1,0.09277777777777778,256,32,256,3,3,3,288,0.1024,102.4,,
+kalos_pretrain_003,dlc1548ikk9yyi5e,pretrain,kalos_a100_pretrain,16,16,17,1,0.05722222222222222,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_004,dlci55xc45lyreuw,pretrain,kalos_a100_pretrain,17,17,19,1,0.05638888888888889,512,64,512,6,6,6,576,0.2048,204.8,,
+kalos_pretrain_005,dlcbxntokc2tl20m,pretrain,kalos_a100_pretrain,15,15,17,1,0.008333333333333333,256,32,256,3,3,3,288,0.1024,102.4,,
