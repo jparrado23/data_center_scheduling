@@ -96,6 +96,32 @@ def test_pipe_separated_gpu_types_allow_multiple_partitions():
     assert variable_clusters == {"cluster_t4", "cluster_g2"}
 
 
+def test_explicit_compatible_clusters_restrict_assignment_variables():
+    """MILP must honor the same explicit compatibility matrix as the QUBO."""
+
+    jobs_df = pd.DataFrame([
+        _job("j1", gpu_type_required="G2", compatible_clusters="cluster_t4")
+    ])
+    model, variables = build_milp_model(jobs_df, _hourly(), _clusters(), ModelConfig())
+    model.update()
+
+    variable_clusters = {cluster for _, cluster, _ in variables["x"]}
+
+    assert variable_clusters == {"cluster_t4"}
+
+
+def test_pipe_separated_explicit_clusters_allow_multiple_partitions():
+    jobs_df = pd.DataFrame([
+        _job("j1", compatible_clusters="cluster_t4|cluster_g2")
+    ])
+    model, variables = build_milp_model(jobs_df, _hourly(), _clusters(), ModelConfig())
+    model.update()
+
+    variable_clusters = {cluster for _, cluster, _ in variables["x"]}
+
+    assert variable_clusters == {"cluster_t4", "cluster_g2"}
+
+
 def test_cpu_capacity_can_force_two_jobs_to_different_hours():
     jobs_df = pd.DataFrame([_job("j1"), _job("j2")])
     clusters_df = _clusters().iloc[[0]].copy()

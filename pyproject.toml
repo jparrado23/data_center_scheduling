@@ -13,6 +13,8 @@ dependencies = [
     "numpy",
     "matplotlib",
     "pydantic",
+    "dimod",
+    "dwave-samplers",
 ]
 
 [project.optional-dependencies]

@@ -455,6 +455,31 @@ def to_dimod_bqm(qubo: SchedulingQubo):
     return bqm
 
 
+def summarize_qubo_graph(qubo: SchedulingQubo) -> dict[str, float | int]:
+    """Return logical-variable and coupling statistics for one QUBO.
+
+    These are logical BQM statistics. They are not an estimate of physical QPU
+    qubits because that also depends on the target hardware topology and the
+    embedding found for this particular graph.
+    """
+
+    degrees = [0] * qubo.num_variables
+    for left, right in qubo.quadratic:
+        degrees[left] += 1
+        degrees[right] += 1
+    possible_couplers = qubo.num_variables * (qubo.num_variables - 1) // 2
+    return {
+        "logical_variables": qubo.num_variables,
+        "assignment_variables": int(qubo.metadata.get("num_assignment_variables", 0)),
+        "slack_variables": int(qubo.metadata.get("num_slack_variables", 0)),
+        "linear_terms": len(qubo.linear),
+        "quadratic_couplers": len(qubo.quadratic),
+        "coupling_density": len(qubo.quadratic) / possible_couplers if possible_couplers else 0.0,
+        "mean_degree": float(np.mean(degrees)) if degrees else 0.0,
+        "max_degree": max(degrees, default=0),
+    }
+
+
 def decode_qubo_sample(qubo: SchedulingQubo, sample: dict[int, int] | list[int] | np.ndarray) -> pd.DataFrame:
     """Decode selected QUBO variables into a schedule dataframe."""
 

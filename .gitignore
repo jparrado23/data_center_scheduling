@@ -21,3 +21,7 @@ experiments/outputs/*
 *.lp
 *.mps
 *.sol
+
+# Generated instance inputs, results, and metadata.
+*.csv
+*.json

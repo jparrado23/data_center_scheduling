@@ -44,6 +44,16 @@ def _normalize_gpu_types(value: Any) -> set[str]:
     return {item.strip() for item in str(value).split("|") if item.strip()}
 
 
+def _normalize_cluster_ids(value: Any) -> set[str]:
+    """Return explicit compatible cluster IDs from list or pipe-delimited metadata."""
+
+    if _is_blank(value):
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        return {str(item).strip() for item in value if str(item).strip()}
+    return {item.strip() for item in str(value).split("|") if item.strip()}
+
+
 def _job_lookup(jobs_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
     """Normalize the jobs table into a dictionary keyed by job identifier.
 
@@ -64,6 +74,7 @@ def _job_lookup(jobs_df: pd.DataFrame) -> dict[str, dict[str, Any]]:
             "earliest_start": int(row.earliest_start),
             "latest_start": int(row.latest_start),
             "gpu_type_required": _normalize_gpu_types(getattr(row, "gpu_type_required", None)),
+            "compatible_clusters": _normalize_cluster_ids(getattr(row, "compatible_clusters", None)),
             "gpu_count_required": gpu_count,
             "cpu_required": _optional_float(row, "cpu_required", 0.0),
             "memory_required_gb": _optional_float(row, "memory_required_gb", 0.0),
@@ -142,13 +153,18 @@ def _is_compatible(
     """Return compatibility using resource profiles when available."""
 
     cluster_profile = cluster_data[cluster]
+    explicit_clusters = job["compatible_clusters"]
+    if explicit_clusters and cluster not in explicit_clusters:
+        return 0
     if _has_resource_profile(job, cluster_profile):
         if job["gpu_count_required"] > 0:
             if cluster_profile["gpu_capacity"] <= 0:
                 return 0
             if job["gpu_count_required"] > cluster_profile["gpu_capacity"]:
                 return 0
-            required_gpu_types = job["gpu_type_required"]
+            # An explicit matrix is the authoritative job-to-cluster relation.
+            # GPU-type metadata remains a fallback for older instances only.
+            required_gpu_types = set() if explicit_clusters else job["gpu_type_required"]
             if required_gpu_types and cluster_profile["gpu_type"] not in required_gpu_types:
                 return 0
         if (
