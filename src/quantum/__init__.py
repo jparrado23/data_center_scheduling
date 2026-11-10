@@ -1,2 +1,2 @@
-"""Future QUBO and quantum/hybrid optimization modules."""
+"""QUBO, annealing, and Pauli Correlation Encoding experiment modules."""
 

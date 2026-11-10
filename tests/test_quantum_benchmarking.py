@@ -3,7 +3,11 @@
 import pandas as pd
 import pytest
 
-from src.quantum.benchmarking import evaluate_physical_schedule, make_effective_price_qubo_inputs
+from src.quantum.benchmarking import (
+    add_effective_price_for_qubo,
+    evaluate_physical_schedule,
+    make_effective_price_qubo_inputs,
+)
 
 
 def _energy() -> pd.DataFrame:
@@ -25,6 +29,17 @@ def test_make_effective_price_qubo_inputs_uses_effective_price_directly():
 
     assert inputs["grid_price"].tolist() == [60.0, 200.0]
     assert inputs["renewable_available"].tolist() == [0.0, 0.0]
+
+
+def test_effective_price_depends_on_instance_load_scale():
+    jobs = pd.DataFrame([{"power": 0.10, "duration": 1}])
+    clusters = pd.DataFrame([{"capacity": 1.0}])
+
+    priced = add_effective_price_for_qubo(_energy(), jobs, clusters, renewable_price=50.0)
+
+    assert priced["expected_load_scale_mw"].iloc[0] == pytest.approx(0.125)
+    assert priced["renewable_share"].iloc[0] == pytest.approx(0.8)
+    assert priced["effective_price"].iloc[0] == pytest.approx(60.0)
 
 
 def test_evaluate_physical_schedule_uses_renewable_then_grid_and_grid_peak():

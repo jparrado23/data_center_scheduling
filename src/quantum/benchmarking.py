@@ -13,6 +13,52 @@ from typing import Any
 import pandas as pd
 
 
+def add_effective_price_for_qubo(
+    energy_df: pd.DataFrame,
+    jobs_df: pd.DataFrame,
+    clusters_df: pd.DataFrame,
+    *,
+    renewable_price: float | None = None,
+    min_load_fraction: float = 0.10,
+) -> pd.DataFrame:
+    """Add an instance-specific effective price for the reduced QUBO.
+
+    The QUBO has no renewable dispatch variables.  This approximation blends
+    renewable and grid prices according to renewable availability relative to
+    an expected facility-load scale.  The scale is derived from scheduled IT
+    energy with a small capacity floor, so the same solar profile can have a
+    different scheduling signal for differently sized instances.
+    """
+
+    if not 0 < min_load_fraction <= 1:
+        raise ValueError("min_load_fraction must be in (0, 1]")
+    required_energy = {"hour", "grid_price", "renewable_available", "pue"}
+    missing = required_energy.difference(energy_df.columns)
+    if missing:
+        raise ValueError(f"energy profile missing effective-price columns: {sorted(missing)}")
+    if "power" not in jobs_df or "duration" not in jobs_df:
+        raise ValueError("jobs table must contain power and duration")
+    if "capacity" not in clusters_df:
+        raise ValueError("clusters table must contain capacity")
+
+    out = energy_df.sort_values("hour").copy()
+    pue = float(out["pue"].iloc[0])
+    average_facility_load = pue * float((jobs_df["power"] * jobs_df["duration"]).sum()) / len(out)
+    capacity_floor = min_load_fraction * pue * float(clusters_df["capacity"].sum())
+    expected_load_scale = max(average_facility_load, capacity_floor)
+    resolved_renewable_price = (
+        float(renewable_price)
+        if renewable_price is not None
+        else float(out.get("renewable_price", pd.Series([0.8 * out["grid_price"].min()])).iloc[0])
+    )
+    renewable_share = (out["renewable_available"] / expected_load_scale).clip(lower=0.0, upper=1.0)
+    out["renewable_price"] = resolved_renewable_price
+    out["expected_load_scale_mw"] = expected_load_scale
+    out["renewable_share"] = renewable_share
+    out["effective_price"] = renewable_share * resolved_renewable_price + (1.0 - renewable_share) * out["grid_price"]
+    return out
+
+
 def make_effective_price_qubo_inputs(energy_df: pd.DataFrame) -> pd.DataFrame:
     """Convert an energy profile with ``effective_price`` into QUBO inputs.
 

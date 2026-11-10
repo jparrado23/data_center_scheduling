@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "jupyter"]
+quantum = ["qiskit"]
+ibm-qpu = ["qiskit-ibm-runtime", "python-dotenv"]
 
 [tool.setuptools.packages.find]
 include = ["src*"]

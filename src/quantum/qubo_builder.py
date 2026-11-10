@@ -547,7 +547,7 @@ def validate_decoded_schedule(
             violations.append(f"{row.job_id} assigned to unknown cluster {row.assigned_cluster}")
             continue
         cluster = clusters.loc[row.assigned_cluster]
-        cluster_for_compatibility = cluster.copy()
+        cluster_for_compatibility = cluster.astype(object).copy()
         cluster_for_compatibility["cluster_id"] = row.assigned_cluster
         if not _compatible(job, cluster_for_compatibility):
             violations.append(f"{row.job_id} assigned to incompatible cluster {row.assigned_cluster}")
