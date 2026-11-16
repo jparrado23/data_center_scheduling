@@ -1,0 +1,7 @@
+job_id,source_job_id,category,compatible_clusters,received_hour,earliest_start,latest_start,duration,duration_hours_original,raw_gpu_num,raw_node_num,raw_cpu_num,node_units_required,node_gpu_equivalent_after_scaling,gpu_count_required,gpu_blocks_required,block_units_required,block_gpu_equivalent_after_scaling,power,power_kw,gpu_tdp_kw,gpu_power_source,cpu_required,memory_required_gb
+seren_pretrain_000,7769138,pretrain,seren_pretrain_pool,13,13,16,1,0.009444444444444445,64,8,512,8,64,1,1,1,96,0.0256,25.6,0.4,NVIDIA A100 datasheet max TDP for A100 80GB SXM,,
+seren_pretrain_001,7105661,pretrain,seren_pretrain_pool,13,13,17,1,0.0225,64,8,512,8,64,1,1,1,96,0.0256,25.6,0.4,NVIDIA A100 datasheet max TDP for A100 80GB SXM,,
+seren_pretrain_002,6291833,pretrain,seren_pretrain_pool,10,10,13,1,0.09,64,8,512,8,64,1,1,1,96,0.0256,25.6,0.4,NVIDIA A100 datasheet max TDP for A100 80GB SXM,,
+seren_pretrain_003,5950326,pretrain,seren_pretrain_pool,13,13,15,1,0.0077777777777777776,64,8,512,8,64,1,1,1,96,0.0256,25.6,0.4,NVIDIA A100 datasheet max TDP for A100 80GB SXM,,
+seren_pretrain_004,5858238,pretrain,seren_pretrain_pool,12,12,15,1,0.08444444444444445,64,8,512,8,64,1,1,1,96,0.0256,25.6,0.4,NVIDIA A100 datasheet max TDP for A100 80GB SXM,,
+seren_pretrain_005,6835287,pretrain,seren_pretrain_pool,12,12,16,1,0.08722222222222223,64,8,512,8,64,1,1,1,96,0.0256,25.6,0.4,NVIDIA A100 datasheet max TDP for A100 80GB SXM,,

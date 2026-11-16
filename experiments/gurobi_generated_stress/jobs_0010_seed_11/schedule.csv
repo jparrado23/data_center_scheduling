@@ -1,0 +1,11 @@
+job_id,category,workload_family,assigned_cluster,cluster_role,cluster_gpu_type,start_hour,duration,power,gpu_type_required,gpu_count_required,cpu_required,memory_required_gb
+synthetic_00002,preprocessing,preprocessing,cluster_v100m16,alibaba_gpu_type_pool,V100M16,9,7,0.00025,,1,11.908,46.0
+synthetic_00005,fine_tuning,fine_tuning,cluster_t4,alibaba_gpu_type_pool,T4,10,1,7e-05,T4,1,3.152,5.46875
+synthetic_00007,preprocessing,preprocessing,cluster_p100,alibaba_gpu_type_pool,P100,13,4,0.00025,,1,8.0,29.8017578125
+synthetic_00008,preprocessing,preprocessing,cluster_v100m16,alibaba_gpu_type_pool,V100M16,30,6,0.00025,,1,4.0,14.900390625
+synthetic_00010,preprocessing,preprocessing,cluster_t4,alibaba_gpu_type_pool,T4,30,4,7e-05,,1,18.708,63.0
+synthetic_00004,preprocessing,preprocessing,cluster_g2,alibaba_gpu_type_pool,G2,43,1,0.00035,,1,18.708,63.0
+synthetic_00006,fine_tuning,fine_tuning,cluster_g2,alibaba_gpu_type_pool,G2,50,2,0.00035,G2,1,18.708,63.0
+synthetic_00003,preprocessing,preprocessing,cluster_v100m16,alibaba_gpu_type_pool,V100M16,60,7,0.00015,,1,4.0,29.8017578125
+synthetic_00001,preprocessing,preprocessing,cluster_p100,alibaba_gpu_type_pool,P100,72,1,0.00015,,1,3.152,5.46875
+synthetic_00009,preprocessing,preprocessing,cluster_v100m32,alibaba_gpu_type_pool,V100M32,91,1,0.00025,,1,18.708,63.0

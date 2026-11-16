@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tensor Networks for the Scheduling QUBO</title>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #526171;
+      --line: #d8e0e8;
+      --panel: #f6f8fb;
+      --panel-strong: #edf3f8;
+      --accent: #176b87;
+      --accent-dark: #0f4c5c;
+      --green: #2c7a57;
+      --amber: #9a6615;
+      --red: #9f3a38;
+      --white: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background: #eef2f6;
+      line-height: 1.58;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      background: var(--white);
+      min-height: 100vh;
+      box-shadow: 0 24px 80px rgba(23, 33, 43, 0.12);
+    }
+
+    header {
+      padding: 44px 54px 30px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(23, 107, 135, 0.13), rgba(44, 122, 87, 0.08)),
+        var(--white);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-dark);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 940px;
+      font-size: 36px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 940px;
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .pill {
+      border: 1px solid rgba(23, 107, 135, 0.26);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--accent-dark);
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    main { padding: 38px 54px 58px; }
+
+    nav {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 34px;
+    }
+
+    nav a {
+      display: block;
+      padding: 13px 14px;
+      color: var(--accent-dark);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    section {
+      padding: 31px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    section:first-of-type {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    h2 {
+      margin: 0 0 15px;
+      font-size: 25px;
+      line-height: 1.22;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    p { margin: 0 0 13px; }
+
+    ul, ol {
+      margin: 8px 0 15px 22px;
+      padding: 0;
+    }
+
+    li { margin: 5px 0; }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      background: #edf2f7;
+      border: 1px solid #d9e2ec;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 15px 16px;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: #101820;
+      color: #f2f6fa;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    pre code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      font-size: 14px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel-strong);
+      color: var(--accent-dark);
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      align-items: start;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .card h3 { margin-top: 0; }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--panel-strong);
+      padding: 15px 17px;
+      margin: 18px 0;
+    }
+
+    .warning {
+      border-left-color: var(--amber);
+      background: #fff7e8;
+    }
+
+    .definition {
+      border-left-color: var(--green);
+      background: #edf8f2;
+    }
+
+    .diagram {
+      margin: 20px 0;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .factor-graph {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(90px, 1fr));
+      gap: 14px;
+      align-items: center;
+      text-align: center;
+    }
+
+    .node, .factor {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      border: 2px solid var(--accent);
+      background: #ffffff;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .node { border-radius: 999px; }
+
+    .factor {
+      border-color: var(--green);
+      border-radius: 8px;
+      background: #f2faf5;
+    }
+
+    .arrow {
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 19px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .checklist li { margin-bottom: 8px; }
+
+    .two-column-list {
+      columns: 2;
+      column-gap: 34px;
+    }
+
+    footer {
+      padding: 24px 54px 38px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: #fbfcfe;
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      header, main, footer { padding-left: 24px; padding-right: 24px; }
+      h1 { font-size: 30px; }
+      nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
+      .factor-graph { grid-template-columns: 1fr; }
+      .two-column-list { columns: 1; }
+    }
+
+    @media print {
+      body { background: white; }
+      .page { box-shadow: none; max-width: none; }
+      nav { display: none; }
+      section { break-inside: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <p class="eyebrow">Study Guide</p>
+      <h1>Tensor Networks for Solving the Data Center Scheduling QUBO</h1>
+      <p class="subtitle">
+        A self-contained explanation of tensor-network fundamentals, why they matter for combinatorial
+        optimization, and how the QUBO in the scheduling notebook becomes a tensor-network problem.
+      </p>
+      <div class="meta">
+        <span class="pill">QUBO</span>
+        <span class="pill">Tensor Networks</span>
+        <span class="pill">Variable Elimination</span>
+        <span class="pill">Scheduling Optimization</span>
+      </div>
+    </header>
+
+    <main>
+      <nav aria-label="Table of contents">
+        <a href="#goal">1. Goal</a>
+        <a href="#tensors">2. Tensor Basics</a>
+        <a href="#networks">3. Tensor Networks</a>
+        <a href="#qubo">4. QUBO Mapping</a>
+        <a href="#scheduling">5. Scheduling Factors</a>
+        <a href="#contraction">6. Contraction</a>
+        <a href="#value">7. Why Valuable</a>
+        <a href="#evaluation">8. Evaluation Plan</a>
+      </nav>
+
+      <section id="goal">
+        <h2>1. What We Are Trying To Do</h2>
+        <p>
+          The notebook builds a QUBO for a reduced data center scheduling problem. A QUBO assigns an
+          energy to every binary schedule:
+        </p>
+        \[
+          H(z)=q_0+\sum_i q_i z_i+\sum_{i&lt;j}q_{ij}z_i z_j
+        \]
+        <p>
+          Each binary variable \(z_i\) is either a job assignment decision \(x_{j,k,s}\) or an auxiliary
+          slack bit \(y_{k,t,b}\). A good schedule is a low-energy binary string. The optimization target is:
+        </p>
+        \[
+          z^\star=\arg\min_z H(z)
+        \]
+        <div class="callout definition">
+          <strong>Main idea:</strong> a tensor network rewrites the large objective over all binary variables
+          as a product or sum of smaller local tensors. Solving then becomes a structured contraction problem
+          instead of plain brute-force enumeration.
+        </div>
+      </section>
+
+      <section id="tensors">
+        <h2>2. Tensor Basics</h2>
+        <p>
+          A tensor is a multidimensional array. The number of indices is called the tensor rank.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Object</th>
+              <th>Notation</th>
+              <th>Rank</th>
+              <th>Example shape</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Scalar</td>
+              <td>\(a\)</td>
+              <td>0</td>
+              <td>one number</td>
+            </tr>
+            <tr>
+              <td>Vector</td>
+              <td>\(v_i\)</td>
+              <td>1</td>
+              <td>\(2\)</td>
+            </tr>
+            <tr>
+              <td>Matrix</td>
+              <td>\(M_{ij}\)</td>
+              <td>2</td>
+              <td>\(2\times2\)</td>
+            </tr>
+            <tr>
+              <td>Higher-order tensor</td>
+              <td>\(T_{ijk\ell}\)</td>
+              <td>4</td>
+              <td>\(2\times2\times2\times2\)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          In our QUBO application, every decision variable is binary. Therefore every tensor index has
+          dimension 2, corresponding to values 0 and 1.
+        </p>
+
+        <h3>Contraction</h3>
+        <p>
+          Tensor contraction means summing over a shared index. Matrix multiplication is the simplest
+          familiar example:
+        </p>
+        \[
+          C_{ik}=\sum_j A_{ij}B_{jk}
+        \]
+        <p>
+          The index \(j\) appears in both tensors and is summed out. Tensor networks generalize this
+          idea to many tensors and many shared indices.
+        </p>
+      </section>
+
+      <section id="networks">
+        <h2>3. What A Tensor Network Represents</h2>
+        <p>
+          A tensor network is a graph. Nodes are tensors. Edges are tensor indices. If an edge connects
+          two tensors, those tensors share an index. Contracting the network eliminates internal indices
+          and produces a scalar, vector, matrix, or another tensor.
+        </p>
+
+        <div class="diagram">
+          <div class="factor-graph">
+            <div class="node">binary<br>variable<br>\(z_i\)</div>
+            <div class="arrow">connected to</div>
+            <div class="factor">local<br>factor<br>\(F_i\)</div>
+            <div class="arrow">and</div>
+            <div class="factor">pair<br>factor<br>\(F_{ij}\)</div>
+          </div>
+        </div>
+
+        <p>
+          For optimization, we can view a tensor network as a compressed representation of a huge table.
+          A brute-force table over \(n\) binary variables has \(2^n\) entries. A tensor network stores
+          local pieces of that table and combines them only as needed.
+        </p>
+      </section>
+
+      <section id="qubo">
+        <h2>4. Deriving A Tensor Network From A QUBO</h2>
+        <p>
+          Start from the QUBO:
+        </p>
+        \[
+          H(z)=q_0+\sum_i q_i z_i+\sum_{i&lt;j}q_{ij}z_i z_j
+        \]
+        <p>
+          A standard statistical-mechanics transformation defines the Boltzmann weight:
+        </p>
+        \[
+          W(z)=\exp[-\beta H(z)]
+        \]
+        <p>
+          where \(\beta\) is inverse temperature. Large \(\beta\) concentrates weight on low-energy
+          configurations. The partition function is:
+        </p>
+        \[
+          Z(\beta)=\sum_z \exp[-\beta H(z)]
+        \]
+
+        <p>
+          Since the QUBO is a sum of local terms, the exponential factorizes:
+        </p>
+        \[
+          Z(\beta)
+          =
+          e^{-\beta q_0}
+          \sum_z
+          \prod_i \exp(-\beta q_i z_i)
+          \prod_{i&lt;j}\exp(-\beta q_{ij}z_i z_j)
+        \]
+
+        <h3>Unary tensors</h3>
+        <p>
+          For each linear term \(q_i z_i\), create a rank-1 tensor:
+        </p>
+        \[
+          U_i(z_i)=\exp(-\beta q_i z_i)
+        \]
+        <p>
+          Since \(z_i\in\{0,1\}\):
+        </p>
+        \[
+          U_i=
+          \begin{bmatrix}
+            1 \\
+            e^{-\beta q_i}
+          \end{bmatrix}
+        \]
+
+        <h3>Pair tensors</h3>
+        <p>
+          For each quadratic term \(q_{ij}z_i z_j\), create a rank-2 tensor:
+        </p>
+        \[
+          V_{ij}(z_i,z_j)=\exp(-\beta q_{ij}z_i z_j)
+        \]
+        <p>
+          Its table is:
+        </p>
+        \[
+          V_{ij}=
+          \begin{bmatrix}
+            1 & 1 \\
+            1 & e^{-\beta q_{ij}}
+          \end{bmatrix}
+        \]
+
+        <div class="callout">
+          <strong>Optimization version:</strong> instead of summing products of exponentials, we can work
+          directly in the energy domain and replace ordinary summation with minimization. This is called
+          min-sum contraction or zero-temperature contraction.
+        </div>
+      </section>
+
+      <section id="scheduling">
+        <h2>5. Applying This To The Scheduling QUBO</h2>
+        <p>
+          The notebook builds the total Hamiltonian:
+        </p>
+        \[
+          H_{\text{total}}
+          =
+          H_{\text{energy}}
+          +
+          H_{\text{assign}}
+          +
+          H_{\text{GPU}}
+          +
+          H_{\text{peak}}
+        \]
+
+        <h3>Decision indices</h3>
+        <p>
+          The main scheduling decision is:
+        </p>
+        \[
+          x_{i,k,s}=1
+        \]
+        <p>
+          if job \(i\) starts on cluster \(k\) at start slot \(s\). Incompatible job-cluster
+          combinations are omitted before the QUBO is built. GPU capacity uses slack bits:
+        </p>
+        \[
+          y_{k,t,b}\in\{0,1\}
+        \]
+
+        <h3>Energy cost factors</h3>
+        <p>
+          In fixed-PUE mode, energy cost is linear:
+        </p>
+        \[
+          H_{\text{energy}}
+          =
+          \sum_{i,k,s}
+          \left(
+            \sum_t c_t \Delta t\, PUE_t\,p_i\,a_{i,s,t}
+          \right)
+          x_{i,k,s}
+        \]
+        <p>
+          Tensor-network meaning: each assignment variable gets a unary factor. Expensive hours raise
+          the unary cost of starts that make a job active in those hours.
+        </p>
+
+        <h3>Assignment factors</h3>
+        <p>
+          Each job must be assigned exactly once:
+        </p>
+        \[
+          \sum_{(k,s)\in\mathcal A_i} x_{i,k,s}=1
+        \]
+        <p>
+          The penalty is:
+        </p>
+        \[
+          H_{\text{assign}}
+          =
+          \lambda_A
+          \sum_i
+          \left(
+            \sum_{(k,s)\in\mathcal A_i}x_{i,k,s}-1
+          \right)^2
+        \]
+        <p>
+          Tensor-network meaning: for each job \(i\), create one local factor connected to all assignment
+          variables belonging to that job. The factor has zero or low energy when exactly one option is
+          selected, and high energy otherwise.
+        </p>
+
+        <h3>GPU capacity factors</h3>
+        <p>
+          GPU usage for cluster \(k\) at time \(t\) is:
+        </p>
+        \[
+          D^G_{k,t}(x)=\sum_i\sum_s g_i a_{i,s,t}x_{i,k,s}
+        \]
+        <p>
+          The notebook converts the inequality \(D^G_{k,t}(x)\leq G_k\) into an equality using binary
+          unused-capacity slack:
+        </p>
+        \[
+          D^G_{k,t}(x)+\sum_b2^b y_{k,t,b}=G_k
+        \]
+        <p>
+          The penalty is:
+        </p>
+        \[
+          H_{\text{GPU}}
+          =
+          \lambda_G
+          \sum_{k,t}
+          \left(
+            D^G_{k,t}(x)+\sum_b2^b y_{k,t,b}-G_k
+          \right)^2
+        \]
+        <p>
+          Tensor-network meaning: for every cluster-hour pair, create a local tensor connected only to
+          the assignment variables active on that cluster-hour plus the slack bits for that cluster-hour.
+        </p>
+
+        <h3>Peak smoothing factors</h3>
+        <p>
+          For fixed PUE, the peak proxy is:
+        </p>
+        \[
+          H_{\text{peak}}
+          =
+          \lambda_P
+          \sum_t
+          \left(
+            PUE_t L^{IT}_t(x)
+          \right)^2
+        \]
+        <p>
+          where:
+        </p>
+        \[
+          L^{IT}_t(x)=\sum_{i,k,s}p_i a_{i,s,t}x_{i,k,s}
+        \]
+        <p>
+          Tensor-network meaning: for each hour \(t\), create one factor connected to all assignment
+          variables active during that hour. This factor discourages concentrated load.
+        </p>
+      </section>
+
+      <section id="contraction">
+        <h2>6. How The Solver Contracts The Network</h2>
+        <p>
+          The exact solver added in <code>src/quantum/tensor_network.py</code> uses min-sum variable
+          elimination. It works in the energy domain, so local tensors store energy contributions rather
+          than Boltzmann probabilities.
+        </p>
+
+        <ol>
+          <li>Create one unary energy tensor for every QUBO linear term.</li>
+          <li>Create one pair energy tensor for every QUBO quadratic term.</li>
+          <li>Choose a contraction order over binary variables.</li>
+          <li>For the next variable, collect every factor that touches it.</li>
+          <li>Add those factors into one combined tensor.</li>
+          <li>Minimize over the selected variable and keep the remaining tensor.</li>
+          <li>Store the local argmin choice so the best binary sample can be reconstructed.</li>
+        </ol>
+
+        <p>
+          Mathematically, if a bucket contains factors depending on \(z_i\) and neighboring variables
+          \(z_{\partial i}\), the solver computes:
+        </p>
+        \[
+          F_{\text{new}}(z_{\partial i})
+          =
+          \min_{z_i\in\{0,1\}}
+          \sum_{F\in\text{bucket}(i)}
+          F(z_i,z_{\partial i})
+        \]
+
+        <div class="callout warning">
+          <strong>Important scaling point:</strong> exact tensor contraction can still be exponential.
+          The cost is controlled less by the total number of variables and more by the largest intermediate
+          tensor produced during contraction.
+        </div>
+
+        <p>
+          The implementation reports:
+        </p>
+        <ul class="two-column-list">
+          <li><code>energy</code></li>
+          <li><code>sample</code></li>
+          <li><code>elapsed_seconds</code></li>
+          <li><code>contraction_order</code></li>
+          <li><code>max_factor_rank</code></li>
+          <li><code>max_factor_size</code></li>
+        </ul>
+      </section>
+
+      <section id="value">
+        <h2>7. Why Tensor Networks Are Valuable Here</h2>
+        <p>
+          Brute force enumerates every binary string:
+        </p>
+        \[
+          \text{cost}_{\text{brute force}}\sim 2^n
+        \]
+        <p>
+          Tensor contraction exploits the interaction graph. If the graph has low effective width, the
+          cost behaves more like:
+        </p>
+        \[
+          \text{cost}_{\text{tensor}}\sim n\,2^w
+        \]
+        <p>
+          where \(w\) is related to the largest number of mutually coupled variables encountered during
+          contraction. This is why a sparse or structured 80-variable QUBO can be easier than a dense
+          35-variable QUBO.
+        </p>
+
+        <h3>Why our scheduling model has exploitable structure</h3>
+        <ul>
+          <li>Compatibility filtering removes invalid job-cluster variables before optimization.</li>
+          <li>Assignment constraints connect variables for the same job, not all jobs globally.</li>
+          <li>GPU capacity factors are local to a cluster and hour.</li>
+          <li>Activity coefficients \(a_{i,s,t}\) create time-local interactions.</li>
+          <li>Narrow start windows reduce the number of variables connected to each factor.</li>
+        </ul>
+
+        <p>
+          The open question is therefore not only how many QUBO variables we have. The better question is:
+        </p>
+        <div class="callout definition">
+          Can compatibility filtering, time-window narrowing, and cluster-hour locality keep the tensor
+          network's effective width small enough for contraction to beat brute force and compete with
+          heuristic solvers?
+        </div>
+      </section>
+
+      <section id="evaluation">
+        <h2>8. Practical Evaluation Plan</h2>
+        <p>
+          Use exact tensor contraction first on tiny and small slices. That gives a correctness reference
+          before introducing approximate tensor methods.
+        </p>
+
+        <h3>Suggested metrics</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Why it matters</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Number of QUBO variables</td>
+              <td>Raw binary problem size.</td>
+            </tr>
+            <tr>
+              <td>Number of quadratic terms</td>
+              <td>Interaction graph density.</td>
+            </tr>
+            <tr>
+              <td>Maximum factor rank</td>
+              <td>Largest number of binary indices in an intermediate tensor.</td>
+            </tr>
+            <tr>
+              <td>Maximum factor size</td>
+              <td>Actual memory pressure. For binary indices, rank \(r\) means up to \(2^r\) entries.</td>
+            </tr>
+            <tr>
+              <td>Runtime</td>
+              <td>End-to-end contraction time.</td>
+            </tr>
+            <tr>
+              <td>Energy</td>
+              <td>Objective quality.</td>
+            </tr>
+            <tr>
+              <td>Schedule feasibility</td>
+              <td>Whether decoded assignments satisfy model constraints.</td>
+            </tr>
+            <tr>
+              <td>Brute-force match</td>
+              <td>Correctness check for small QUBOs.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Example code</h3>
+        <pre><code>from src.quantum.tensor_network import benchmark_tensor_network_solver
+
+metrics = benchmark_tensor_network_solver(qubo)
+
+summary = {
+    "variables": metrics["num_variables"],
+    "quadratic_terms": metrics["num_quadratic_terms"],
+    "energy": metrics["energy"],
+    "runtime_seconds": metrics["elapsed_seconds"],
+    "max_factor_rank": metrics["max_factor_rank"],
+    "max_factor_size": metrics["max_factor_size"],
+    "matches_bruteforce": metrics.get("matches_bruteforce"),
+}
+
+summary</code></pre>
+
+        <h3>Recommended experiment ladder</h3>
+        <ol class="checklist">
+          <li>Start with the toy QUBO from the notebook and verify exact agreement with brute force.</li>
+          <li>Increase the number of jobs while keeping start windows narrow.</li>
+          <li>Measure how <code>max_factor_rank</code> and <code>max_factor_size</code> grow.</li>
+          <li>Compare tensor contraction runtime against brute force until brute force becomes infeasible.</li>
+          <li>Compare energy and feasibility against simulated annealing or D-Wave Ocean samples.</li>
+          <li>When exact contraction becomes too expensive, move to approximate tensor-network methods.</li>
+        </ol>
+
+        <div class="callout">
+          <strong>Study takeaway:</strong> tensor networks are valuable here because they expose the structure
+          hidden inside the QUBO. The scheduling problem is not just a flat binary string. It is a graph of
+          assignment, time, cluster, capacity, and peak-load relationships. Tensor methods let us measure
+          and exploit that graph structure directly.
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      References in this repository: <code>notebooks/13_qubo_step_by_step_formulation.ipynb</code>,
+      <code>src/quantum/qubo_builder.py</code>, and <code>src/quantum/tensor_network.py</code>.
+    </footer>
+  </div>
+</body>
+</html>

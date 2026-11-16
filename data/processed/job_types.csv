@@ -1,0 +1,5 @@
+job_type,power_min_kw,power_max_kw,power_min,power_max,max_start_delay_hours,duration_min_hours,duration_max_hours,start_window_note
+inference,0.78,1.4,0.00078,0.0014,0,24,24,ASAP; starts immediately and runs all day
+fine_tuning,2.6,3.6,0.0026,0.0036,4,3,4,Can be delayed up to 4 hours
+training,4.9,7.3,0.0049,0.0073,16,6,8,Can be delayed up to 16 hours
+preprocessing,1.0,1.8,0.001,0.0018,24,2,4,Can start at any feasible hour in the horizon

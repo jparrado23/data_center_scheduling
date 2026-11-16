@@ -1,0 +1,3 @@
+job_id,category,workload_family,duration,power,earliest_start,latest_start,gpu_type_required,gpu_count_required,cpu_required,memory_required_gb
+job_007,gpu_restricted,combinatorial_difficulty,2,0.0001345652064168,1,10,T4,2,17.625091194416214,85.01515498304411
+job_012,gpu_restricted,combinatorial_difficulty,3,0.0002165918599665,5,11,T4,3,23.68353070180791,123.06608173518322

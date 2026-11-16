@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MILP Scope and Reduced QUBO Hamiltonian</title>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]']] },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #51606f;
+      --line: #d8e0e8;
+      --panel: #f6f8fb;
+      --panel-strong: #edf3f8;
+      --accent: #176b87;
+      --accent-dark: #0f4c5c;
+      --green: #2c7a57;
+      --amber: #9a6615;
+      --red: #9f3a38;
+      --white: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background: #eef2f6;
+      line-height: 1.55;
+    }
+
+    .page {
+      max-width: 1160px;
+      margin: 0 auto;
+      background: var(--white);
+      min-height: 100vh;
+      box-shadow: 0 24px 80px rgba(23, 33, 43, 0.12);
+    }
+
+    header {
+      padding: 44px 54px 30px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(23, 107, 135, 0.12), rgba(44, 122, 87, 0.08)),
+        var(--white);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-dark);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 920px;
+      font-size: 34px;
+      line-height: 1.13;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 940px;
+      margin: 16px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .pill {
+      border: 1px solid rgba(23, 107, 135, 0.26);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--accent-dark);
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    main { padding: 38px 54px 56px; }
+
+    nav {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 34px;
+    }
+
+    nav a {
+      display: block;
+      padding: 13px 14px;
+      color: var(--accent-dark);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    section {
+      padding: 30px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    section:first-of-type {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    h2 {
+      margin: 0 0 15px;
+      font-size: 24px;
+      line-height: 1.22;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    p { margin: 0 0 13px; }
+
+    ul, ol {
+      margin: 8px 0 15px 22px;
+      padding: 0;
+    }
+
+    li { margin: 5px 0; }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      background: #edf2f7;
+      border: 1px solid #d9e2ec;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-size: 0.92em;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+      align-items: start;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .card h3 { margin-top: 0; }
+
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--panel-strong);
+      padding: 15px 17px;
+      margin: 18px 0;
+    }
+
+    .warning {
+      border-left-color: var(--amber);
+      background: #fff7e8;
+    }
+
+    .success {
+      border-left-color: var(--green);
+      background: #eaf8f1;
+    }
+
+    .formula {
+      overflow-x: auto;
+      margin: 15px 0;
+      padding: 14px 16px;
+      background: #fbfcfd;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .formula-label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0 22px;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      background: #eaf1f6;
+      color: #18313d;
+      border: 1px solid #cad6df;
+      padding: 10px;
+      vertical-align: top;
+    }
+
+    td {
+      border: 1px solid #dbe3ea;
+      padding: 10px;
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td { background: #fbfcfd; }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      background: #eef5ff;
+      color: var(--accent-dark);
+    }
+
+    @media (max-width: 860px) {
+      header, main { padding-left: 24px; padding-right: 24px; }
+      nav { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: white; }
+      .page { box-shadow: none; max-width: none; }
+      nav { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <p class="eyebrow">Quantum Scheduling Formulation</p>
+    <h1>Reduced QUBO Hamiltonian for GPU Job Scheduling</h1>
+    <p class="subtitle">
+      Supervisor-facing explanation of the reduced QUBO used in the quantum
+      track. The order follows the implemented notebook: define the binary
+      variables, precompute activity, introduce the squared-penalty expansion,
+      and then add energy, assignment, GPU-capacity, peak, and PUE terms.
+    </p>
+    <div class="meta">
+      <span class="pill">QUBO only</span>
+      <span class="pill">Notebook order</span>
+      <span class="pill">GPU slack</span>
+      <span class="pill">Hamiltonian terms</span>
+    </div>
+  </header>
+
+  <main>
+    <nav>
+      <a href="#scope">1. Scope</a>
+      <a href="#variables">2. Variables</a>
+      <a href="#square">3. Square Penalty</a>
+      <a href="#terms">4. Terms</a>
+      <a href="#pue">5. PUE</a>
+      <a href="#total">6. Total</a>
+      <a href="#validation">7. Validation</a>
+      <a href="#size">8. Size</a>
+    </nav>
+
+    <section id="scope">
+      <h2>1. QUBO Scope and Modeling Boundary</h2>
+      <p>
+        This document focuses only on the reduced QUBO formulation. The goal is
+        not to reproduce the full operational optimization model. Instead, the
+        QUBO isolates the binary scheduling core that can be sent to D-Wave,
+        QAOA, Pauli Correlation Encoding, tensor-network methods, or other
+        QUBO/Ising-compatible solvers.
+      </p>
+      <div class="callout">
+        <p style="margin:0">
+          <strong>Core idea.</strong> The QUBO chooses whether each job runs on a
+          compatible cluster at a feasible start time. Feasibility constraints
+          are converted into Hamiltonian penalties, and costs are encoded as
+          linear or quadratic coefficients.
+        </p>
+      </div>
+      <p>
+        The current reduced QUBO includes assignment, GPU capacity, energy cost,
+        fixed/exogenous PUE, an optional load-dependent PUE energy term, and a
+        peak/load-smoothing proxy. It intentionally does not include battery
+        state of charge, explicit renewable/grid dispatch variables, exact
+        contracted peak billing, or continuous energy-balance variables.
+      </p>
+
+      <h3>Toy Instance Used in the Notebook</h3>
+      <p>
+        The notebook uses a tiny instance so every coefficient can be inspected
+        and every Hamiltonian term can be validated progressively.
+      </p>
+      <table>
+        <tr><th>Element</th><th>Value</th></tr>
+        <tr><td>Jobs</td><td>3 jobs: \(j_1,j_2,j_3\)</td></tr>
+        <tr><td>Duration</td><td>All jobs last 1 time slot</td></tr>
+        <tr><td>Time horizon</td><td>3 slots: \(t=0,1,2\), with \(\Delta t=1\) hour</td></tr>
+        <tr><td>GPU demand</td><td>Each job requires 1 GPU</td></tr>
+        <tr><td>IT power</td><td>\(p_1=0.010\) MW, \(p_2=0.015\) MW, \(p_3=0.008\) MW</td></tr>
+        <tr><td>Clusters</td><td>\(c_{T4}\) has 1 GPU; \(c_{V100}\) has 1 GPU</td></tr>
+        <tr><td>Compatibility</td><td>\(j_1,j_2\) can only run on \(c_{T4}\); \(j_3\) can only run on \(c_{V100}\)</td></tr>
+        <tr><td>Prices</td><td>\(c_0=30\), \(c_1=100\), \(c_2=40\) per MWh</td></tr>
+        <tr><td>Fixed PUE</td><td>\(PUE_t=1.20\) for all slots</td></tr>
+      </table>
+    </section>
+
+    <section id="variables">
+      <h2>2. QUBO Variables, Compatibility, and Activity</h2>
+
+      <h3>2.1 Assignment Variables</h3>
+      <p>
+        The fundamental binary variable is one complete scheduling option:
+      </p>
+      <div class="formula">
+        <span class="formula-label">Assignment decision</span>
+        \[
+        x_{i,k,s}=\begin{cases}
+        1, & \text{job }i\text{ starts on cluster }k\text{ at slot }s,\\
+        0, & \text{otherwise.}
+        \end{cases}
+        \]
+      </div>
+      <p>
+        The QUBO does not create variables for impossible combinations. If a job
+        is not compatible with a cluster, all corresponding \(x_{i,k,s}\)
+        variables are omitted before the Hamiltonian is built.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Feasible option set</span>
+        \[
+        \mathcal{A}_i=\{(k,s): C_{i,k}=1,\ s\in\mathcal{S}_i\}
+        \]
+      </div>
+      <table>
+        <tr><th>Symbol</th><th>Meaning</th></tr>
+        <tr><td>\(\mathcal{I}\)</td><td>Set of jobs.</td></tr>
+        <tr><td>\(\mathcal{K}\)</td><td>Set of clusters or aggregate GPU partitions.</td></tr>
+        <tr><td>\(\mathcal{S}_i\)</td><td>Feasible start slots for job \(i\).</td></tr>
+        <tr><td>\(C_{i,k}\)</td><td>Compatibility relation. It is 1 if job \(i\) can run on cluster \(k\).</td></tr>
+        <tr><td>\(\mathcal{A}_i\)</td><td>Set of feasible cluster-start options for job \(i\).</td></tr>
+      </table>
+
+      <h3>2.2 Activity Coefficient</h3>
+      <p>
+        Activity is precomputed data, not a decision variable. It tells us which
+        time slots are occupied if a job starts at a given slot.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Precomputed activity</span>
+        \[
+        a_{i,s,t}=\begin{cases}
+        1, & s\le t<s+d_i,\\
+        0, & \text{otherwise.}
+        \end{cases}
+        \]
+      </div>
+      <p>
+        Once the solver selects \(x_{i,k,s}=1\), the coefficient
+        \(a_{i,s,t}\) determines where the job contributes power and GPU load.
+        This is why the QUBO does not need extra variables for “job is active”.
+      </p>
+
+      <h3>2.3 Load Expressions</h3>
+      <p>These expressions are used later to build energy, GPU, and peak terms.</p>
+      <div class="formula">
+        <span class="formula-label">IT power load</span>
+        \[
+        L_t^{IT}(x)=\sum_{i\in\mathcal{I}}\sum_{k\in\mathcal{K}}\sum_{s\in\mathcal{S}_i}
+        p_i a_{i,s,t}x_{i,k,s}
+        \]
+      </div>
+      <div class="formula">
+        <span class="formula-label">GPU demand by cluster and time</span>
+        \[
+        D^G_{k,t}(x)=\sum_{i\in\mathcal{I}}\sum_{s\in\mathcal{S}_i}
+        g_i a_{i,s,t}x_{i,k,s}
+        \]
+      </div>
+    </section>
+
+    <section id="square">
+      <h2>3. Generic Squared-Penalty Expansion</h2>
+      <p>
+        The notebook implements constraints using a generic helper that expands
+        squared equalities into QUBO coefficients. For binary variables
+        \(z_r\in\{0,1\}\), consider:
+      </p>
+      <div class="formula">
+        <span class="formula-label">Generic squared equality</span>
+        \[
+        H_{penalty}=\lambda\left(\sum_{r\in R}a_rz_r-b\right)^2
+        \]
+      </div>
+      <p>Expanding the square gives:</p>
+      <div class="formula">
+        <span class="formula-label">Expansion</span>
+        \[
+        \begin{aligned}
+        H_{penalty}
+        &=\lambda\left[
+        \left(\sum_{r\in R}a_rz_r\right)^2
+        -2b\sum_{r\in R}a_rz_r+b^2
+        \right]\\
+        &=\lambda\left[
+        \sum_{r\in R}a_r^2z_r^2
+        +\sum_{r\in R}\sum_{\substack{q\in R\\q\ne r}}a_ra_qz_rz_q
+        -2b\sum_{r\in R}a_rz_r+b^2
+        \right].
+        \end{aligned}
+        \]
+      </div>
+      <p>
+        Because variables are binary, \(z_r^2=z_r\). Therefore:
+      </p>
+      <div class="formula">
+        \[
+        H_{penalty}=\lambda b^2
+        +\sum_{r\in R}\lambda(a_r^2-2ba_r)z_r
+        +\sum_{r\in R}\sum_{\substack{q\in R\\q\ne r}}\lambda a_ra_qz_rz_q
+        \]
+      </div>
+      <p>
+        The formula above writes ordered pairs \(q\ne r\). The implementation
+        stores each unordered QUBO interaction once, so it adds
+        \(2\lambda a_ra_q\) for the stored pair \((r,q)\). This is the same
+        mathematics with a more efficient coefficient representation.
+      </p>
+      <table>
+        <tr><th>QUBO component</th><th>Coefficient added by the helper</th></tr>
+        <tr><td>Offset</td><td>\(+\lambda b^2\)</td></tr>
+        <tr><td>Linear term for \(z_r\)</td><td>\(+\lambda(a_r^2-2ba_r)\)</td></tr>
+        <tr><td>Quadratic term for stored pair \(z_rz_q\), \(r&lt;q\)</td><td>\(+2\lambda a_ra_q\)</td></tr>
+      </table>
+    </section>
+
+    <section id="terms">
+      <h2>4. Hamiltonian Terms in Notebook Order</h2>
+
+      <h3>4.1 Energy Cost Term</h3>
+      <p>
+        The notebook starts with the energy cost term. Under fixed or exogenous
+        PUE, each assignment variable receives a linear cost equal to the price
+        of the time slots in which the job would be active.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Per-option energy coefficient</span>
+        \[
+        E_{i,k,s}=\sum_{t\in\mathcal{T}}c_t\Delta t\,PUE_t\,p_i\,a_{i,s,t}
+        \]
+      </div>
+      <div class="formula">
+        <span class="formula-label">Energy Hamiltonian</span>
+        \[
+        H_{energy}^{fixed}=\sum_{i,k,s}E_{i,k,s}x_{i,k,s}
+        \]
+      </div>
+      <div class="callout">
+        <strong>Validation meaning.</strong> With only this term, the optimal
+        solution schedules no jobs because all scheduled work has positive cost.
+        This is correct: the cost term prices work, but does not force work to
+        happen.
+      </div>
+
+      <h3>4.2 Assignment Constraint Penalty</h3>
+      <p>
+        Next, every job must be selected exactly once from its feasible options:
+      </p>
+      <div class="formula">
+        \[
+        \sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}=1
+        \]
+      </div>
+      <p>The QUBO penalty is:</p>
+      <div class="formula">
+        \[
+        H_{assign}=\lambda_A\sum_{i\in\mathcal{I}}
+        \left(\sum_{(k,s)\in\mathcal{A}_i}x_{i,k,s}-1\right)^2
+        \]
+      </div>
+      <p>
+        For one job, define \(z_r\) as each feasible option in \(\mathcal{A}_i\).
+        This is the generic squared penalty with \(a_r=1\) and \(b=1\):
+      </p>
+      <div class="formula">
+        <span class="formula-label">Expanded assignment penalty for one job</span>
+        \[
+        \lambda_A\left[
+        1-
+        \sum_{r\in\mathcal{A}_i}z_r
+        +
+        \sum_{r\in\mathcal{A}_i}\sum_{\substack{q\in\mathcal{A}_i\\q\ne r}}z_rz_q
+        \right]
+        \]
+      </div>
+      <p>
+        The negative linear part rewards selecting an option. The positive
+        quadratic part penalizes selecting two different options for the same
+        job. The minimum penalty is reached when exactly one option is selected.
+      </p>
+
+      <h3>4.3 GPU Capacity Constraint With Binary Slack</h3>
+      <p>
+        GPU capacity is an inequality per cluster and time slot:
+      </p>
+      <div class="formula">
+        \[
+        D^G_{k,t}(x)\le G_k
+        \]
+      </div>
+      <p>
+        QUBO handles equalities naturally, so the inequality is rewritten using
+        unused-GPU slack \(Y_{k,t}\):
+      </p>
+      <div class="formula">
+        \[
+        D^G_{k,t}(x)+Y_{k,t}=G_k
+        \]
+      </div>
+      <p>The slack is encoded in binary:</p>
+      <div class="formula">
+        \[
+        Y_{k,t}=\sum_{b=0}^{B_k-1}2^b y_{k,t,b},
+        \qquad
+        B_k=\left\lceil\log_2(G_k+1)\right\rceil
+        \]
+      </div>
+      <p>The GPU Hamiltonian becomes:</p>
+      <div class="formula">
+        \[
+        H_{GPU}=\lambda_G\sum_{k,t}
+        \left(
+        \sum_i\sum_s g_i a_{i,s,t}x_{i,k,s}
+        +\sum_{b=0}^{B_k-1}2^b y_{k,t,b}
+        -G_k
+        \right)^2
+        \]
+      </div>
+      <p>
+        For one cluster-time pair, the expansion contains assignment-assignment
+        interactions, assignment-slack interactions, slack-slack interactions,
+        linear terms, and the constant \(\lambda_GG_k^2\). If usage is below
+        capacity, slack can represent the unused GPUs and the penalty can be
+        zero. If usage exceeds capacity, no non-negative slack can repair the
+        equality, so the penalty is positive.
+      </p>
+
+      <h3>4.4 Peak Penalty</h3>
+      <p>
+        After assignment and GPU capacity, the notebook adds a peak or
+        load-smoothing proxy. With fixed PUE, the proxy uses squared facility
+        load:
+      </p>
+      <div class="formula">
+        \[
+        H_{peak}^{fixed}=\lambda_P\sum_t\left(PUE_tL_t^{IT}(x)\right)^2
+        \]
+      </div>
+      <p>
+        This is still a QUBO because \(PUE_t\) is constant and
+        \(L_t^{IT}(x)\) is linear in the binary assignment variables.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Expanded peak term for one time slot</span>
+        \[
+        \lambda_P\left(\sum_r \ell_{r,t}x_r\right)^2
+        =\lambda_P\left[
+        \sum_r\ell_{r,t}^2x_r
+        +\sum_r\sum_{q\ne r}\ell_{r,t}\ell_{q,t}x_rx_q
+        \right]
+        \]
+      </div>
+      <p>
+        where \(\ell_{r,t}=PUE_t p_i a_{i,s,t}\) for assignment option
+        \(r=(i,k,s)\). The positive interactions make simultaneous load more
+        expensive than spread load.
+      </p>
+    </section>
+
+    <section id="pue">
+      <h2>5. PUE Integration</h2>
+      <p>
+        PUE converts IT load into facility load. It is not modeled as a separate
+        feasibility constraint in the QUBO; it modifies the cost terms.
+      </p>
+
+      <h3>5.1 Fixed or Exogenous PUE</h3>
+      <p>
+        With fixed or hourly exogenous PUE, PUE is just a known multiplier:
+      </p>
+      <div class="formula">
+        \[
+        P_t^{fac}(x)=PUE_tL_t^{IT}(x)
+        \]
+      </div>
+      <p>
+        Therefore both energy and peak remain QUBO-compatible:
+      </p>
+      <div class="formula">
+        \[
+        H_{energy}^{fixed}=\sum_t c_t\Delta t\,PUE_tL_t^{IT}(x)
+        \]
+        \[
+        H_{peak}^{fixed}=\lambda_P\sum_t\left(PUE_tL_t^{IT}(x)\right)^2
+        \]
+      </div>
+
+      <h3>5.2 Load-Dependent PUE Energy</h3>
+      <p>
+        The notebook also includes an optional affine utilization-dependent PUE
+        energy model:
+      </p>
+      <div class="formula">
+        \[
+        PUE_t(x)=PUE_{high}-(PUE_{high}-PUE_{low})
+        \frac{L_t^{IT}(x)}{L_{max}^{IT}}
+        \]
+      </div>
+      <p>Substituting into facility energy gives:</p>
+      <div class="formula">
+        \[
+        H_{facility}=\sum_t c_t\Delta t\left[
+        PUE_{high}L_t^{IT}(x)
+        -
+        \frac{PUE_{high}-PUE_{low}}{L_{max}^{IT}}
+        \left(L_t^{IT}(x)\right)^2
+        \right]
+        \]
+      </div>
+      <p>
+        This remains a QUBO because the first part is linear and the second part
+        is quadratic. However, if we also squared load-dependent facility power
+        in the peak term, the result would become cubic and quartic.
+      </p>
+      <div class="callout warning">
+        <strong>QUBO boundary.</strong> Under load-dependent PUE, the peak proxy
+        is kept on IT load:
+        \[
+        H_{peak}^{IT}=\lambda_P\sum_t\left(L_t^{IT}(x)\right)^2.
+        \]
+        This avoids quartic terms and keeps the model as a true QUBO.
+      </div>
+    </section>
+
+    <section id="total">
+      <h2>6. Final Hamiltonian</h2>
+      <p>The default fixed-PUE notebook Hamiltonian is:</p>
+      <div class="formula">
+        <span class="formula-label">Fixed-PUE QUBO</span>
+        \[
+        H_{total}^{fixed}
+        =H_{energy}^{fixed}+H_{assign}+H_{GPU}+H_{peak}^{fixed}
+        \]
+      </div>
+      <p>The optional load-dependent PUE variant is:</p>
+      <div class="formula">
+        <span class="formula-label">Load-dependent PUE QUBO</span>
+        \[
+        H_{total}^{load}
+        =H_{facility}+H_{assign}+H_{GPU}+H_{peak}^{IT}
+        \]
+      </div>
+      <p>
+        A QUBO solver does not receive these symbolic expressions directly. It
+        receives the expanded coefficient form:
+      </p>
+      <div class="formula">
+        \[
+        H(z)=q_0+\sum_r q_rz_r+\sum_{r<q}q_{r,q}z_rz_q
+        \]
+      </div>
+      <div class="callout success">
+        <strong>Implementation interpretation.</strong> Prices, PUE values,
+        powers, GPU counts, compatible clusters, and activity coefficients are
+        all preprocessing data. They are used to create linear and quadratic
+        coefficients before calling D-Wave, QAOA, PCE, tensor networks, or any
+        other QUBO-compatible solver.
+      </div>
+    </section>
+
+    <section id="validation">
+      <h2>7. Progressive Validation Flow</h2>
+      <p>
+        The notebook validates the Hamiltonian one term at a time. This is
+        important because a QUBO can be syntactically valid but conceptually
+        wrong if one penalty is expanded incorrectly.
+      </p>
+      <table>
+        <tr><th>Step</th><th>Hamiltonian included</th><th>Expected behavior</th></tr>
+        <tr><td>1</td><td>\(H_{energy}\)</td><td>No jobs are scheduled because energy cost is positive.</td></tr>
+        <tr><td>2</td><td>\(H_{energy}+H_{assign}\)</td><td>Every job is scheduled exactly once, but GPU overloads may occur.</td></tr>
+        <tr><td>3</td><td>\(+H_{GPU}\)</td><td>Schedules respect GPU capacity using slack variables.</td></tr>
+        <tr><td>4</td><td>\(+H_{peak}\)</td><td>Simultaneous load becomes less attractive when the peak weight is strong enough.</td></tr>
+      </table>
+      <p>
+        Decoded samples must always be checked for assignment feasibility and
+        resource feasibility. Low QUBO energy is not enough if penalty weights
+        are too weak or if the decoded schedule violates constraints.
+      </p>
+    </section>
+
+    <section id="size">
+      <h2>8. QUBO Size and Connectivity Growth</h2>
+      <p>
+        The number of binary variables is driven by jobs, compatible clusters,
+        feasible start slots, time slots, and GPU slack bits.
+      </p>
+      <div class="formula">
+        <span class="formula-label">Assignment variables</span>
+        \[
+        N_x=\sum_i |\mathcal{K}_i|\,|\mathcal{S}_i|
+        \]
+      </div>
+      <p>
+        If job \(i\) has \(m_i=|\mathcal{K}_i||\mathcal{S}_i|\) feasible
+        assignment options, the assignment penalty creates:
+      </p>
+      <div class="formula">
+        \[
+        \binom{m_i}{2}
+        \]
+      </div>
+      <table>
+        <tr><th>Options for one job \(m_i\)</th><th>Quadratic interactions \(\binom{m_i}{2}\)</th></tr>
+        <tr><td>2</td><td>1</td></tr>
+        <tr><td>4</td><td>6</td></tr>
+        <tr><td>10</td><td>45</td></tr>
+        <tr><td>20</td><td>190</td></tr>
+      </table>
+      <p>
+        Variables may grow linearly when one dimension is varied alone, but
+        quadratic interactions can grow much faster. This matters for quantum
+        hardware because interactions are couplers. Dense local subgraphs can
+        require many more physical qubits than the logical variable count alone
+        suggests.
+      </p>
+    </section>
+  </main>
+</div>
+</body>
+</html>

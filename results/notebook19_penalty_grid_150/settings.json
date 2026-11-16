@@ -1,0 +1,25 @@
+{
+  "reads": 150,
+  "seed": 321,
+  "assignment": [
+    500.0,
+    1000.0,
+    2000.0
+  ],
+  "gpu": [
+    100.0,
+    500.0
+  ],
+  "peak": [
+    0.0,
+    100.0,
+    1000.0
+  ],
+  "instances": [
+    "tiny_6_jobs",
+    "avg_active_day_jobs",
+    "small_12_jobs",
+    "medium_24_jobs",
+    "max_day_jobs"
+  ]
+}

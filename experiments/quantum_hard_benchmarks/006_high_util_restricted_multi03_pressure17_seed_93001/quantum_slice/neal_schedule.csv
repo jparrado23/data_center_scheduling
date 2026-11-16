@@ -1,0 +1,3 @@
+job_id,assigned_cluster,start_hour,duration,power,gpu_count_required,cpu_required,memory_required_gb,qubo_variable
+job_007,cluster_t4,6,2,0.0001345652064168,2.0,17.625091194416214,85.01515498304411,5
+job_012,cluster_t4,9,3,0.0002165918599665,3.0,23.68353070180791,123.06608173518322,14

@@ -1,0 +1,2 @@
+cluster_id,cluster_role,gpu_type,raw_gpu_count,node_gpu,node_capacity,unit_gpu,block_gpu,block_capacity,gpu_capacity,gpu_count,capacity_kw,capacity,power_capacity_kw,cpu_capacity,memory_capacity_gb
+seren_pretrain_pool,seren_a100_pool,NVIDIA A100-SXM 80GB,2288,8,286,96,96,23,23,23,915.2,0.9152,915.2,36608,
