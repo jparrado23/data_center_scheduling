@@ -41,7 +41,11 @@ class IsingModel:
 
 @dataclass(frozen=True)
 class FixedAlphaConfig:
-    """Configuration for one fixed-alpha statevector or hardware PCE run."""
+    """Configuration for one fixed-alpha PCE run.
+
+    ``maxiter`` is passed as the objective-evaluation cap for the supported
+    COBYLA and Powell optimizers.
+    """
 
     maxiter: int = 120
     rhobeg: float = 0.5
@@ -272,15 +276,40 @@ def run_fixed_alpha(
             best_feasible = candidate
         return candidate.pce_loss / scale
 
+    optimizer_name = config.optimizer.upper()
+    if optimizer_name == "COBYLA":
+        optimizer_options = {
+            "maxiter": config.maxiter,
+            "rhobeg": config.rhobeg,
+            "tol": config.tolerance,
+        }
+    elif optimizer_name == "POWELL":
+        optimizer_options = {
+            "maxiter": config.maxiter,
+            "maxfev": config.maxiter,
+            "xtol": config.tolerance,
+            "ftol": config.tolerance,
+        }
+    else:
+        optimizer_options = {
+            "maxiter": config.maxiter,
+            "rhobeg": config.rhobeg,
+            "tol": config.tolerance,
+        }
+
     optimization = minimize(
         objective,
         np.asarray(initial_theta, dtype=float),
-        method=config.optimizer,
-        options={"maxiter": config.maxiter, "rhobeg": config.rhobeg, "tol": config.tolerance},
+        method=optimizer_name,
+        options=optimizer_options,
     )
     final_candidate = evaluate_candidate(
         optimization.x, alpha, correlation_evaluator, qubo, jobs_df, clusters_df, hours, model
     )
+    if is_feasible(final_candidate) and (
+        best_feasible is None or final_candidate.qubo_energy < best_feasible.qubo_energy
+    ):
+        best_feasible = final_candidate
     return FixedAlphaRun(
         alpha=float(alpha),
         optimization=optimization,

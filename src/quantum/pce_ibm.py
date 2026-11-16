@@ -84,7 +84,7 @@ def build_ibm_correlation_evaluator(
     try:
         from qiskit.quantum_info import SparsePauliOp
         from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-        from qiskit_ibm_runtime.executor_estimator import Estimator
+        from qiskit_ibm_runtime import EstimatorV2
     except ModuleNotFoundError as error:  # pragma: no cover - optional dependency
         raise ImportError("Install the 'ibm-qpu' extra for IBM PCE execution") from error
 
@@ -96,7 +96,7 @@ def build_ibm_correlation_evaluator(
         SparsePauliOp(label).apply_layout(isa_ansatz.layout)
         for label in labels
     ]
-    estimator = Estimator(mode=backend)
+    estimator = EstimatorV2(mode=backend)
     estimator.options.default_precision = precision
     return IbmPceCorrelationEvaluator(
         estimator=estimator,

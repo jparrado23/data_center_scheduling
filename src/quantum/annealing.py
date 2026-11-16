@@ -32,6 +32,12 @@ class AnnealingResult:
     examined_sample_count: int
 
 
+def _energies_are_consistent(annealer_energy: float, direct_energy: float) -> bool:
+    """Allow floating-point summation drift while detecting real mismatches."""
+
+    return bool(np.isclose(annealer_energy, direct_energy, rtol=1e-8, atol=1e-6))
+
+
 def run_simulated_annealing(
     qubo: SchedulingQubo,
     jobs_df: pd.DataFrame,
@@ -81,7 +87,7 @@ def run_simulated_annealing(
         raise RuntimeError("simulated annealing returned no samples")
     energy, sample, schedule, validation = best_feasible or best_raw
     direct_energy = qubo_energy(qubo, sample)
-    if not np.isclose(energy, direct_energy, rtol=1e-9, atol=1e-7):
+    if not _energies_are_consistent(energy, direct_energy):
         raise RuntimeError(
             f"annealer energy {energy} disagrees with direct QUBO energy {direct_energy}"
         )

@@ -6,9 +6,9 @@ This repository is the implementation backbone of a Master's thesis at the inter
 
 > Can an energy-aware scheduler move flexible, multi-node AI workloads to better time slots without violating the physical and operational constraints of an AI data center?
 
-The project starts from a complete classical mixed-integer linear programming (MILP) model in Gurobi. It then derives, validates, and benchmarks a reduced binary QUBO formulation for annealing, tensor-network, Pauli Correlation Encoding (PCE), and future gate-based quantum experiments.
+The project compares three optimization tracks: a complete mixed-integer linear programming (MILP) model in Gurobi, quantum annealing applied to a reduced binary QUBO, and Pauli Correlation Encoding (PCE) applied to the same QUBO. Keeping a shared reduced formulation makes the annealing and PCE results comparable while the MILP remains the operational reference.
 
-The objective is not to claim a quantum advantage prematurely. It is to identify precisely which scheduling structures are difficult, which can be represented faithfully in QUBO form, and where quantum or quantum-inspired methods may become technically credible.
+The objective is not to claim a quantum advantage prematurely. It is to identify precisely which scheduling structures are difficult, which can be represented faithfully in QUBO form, and whether annealing or PCE can produce physically valid schedules at useful cost.
 
 ## Why This Problem Matters
 
@@ -26,25 +26,28 @@ This is a decision layer above a low-level cluster scheduler. It decides **when*
 ## Research Architecture
 
 ~~~
-Workload traces / synthetic stress instances
-                  |
-                  v
-    Job windows, resource demand, compatibility
-                  |
-                  +------------------------------+
-                  |                              |
-                  v                              v
-        Full MILP baseline                Reduced scheduling QUBO
-        Gurobi source of truth            Binary assignment + GPU slack
-                  |                              |
-                  v                              v
-   Physical dispatch and cost          SA / D-Wave / Digital Annealer
-   renewable, grid, PUE, battery       tensor networks / PCE / QAOA
-                  |                              |
-                  +-------------+----------------+
-                                v
-              Common decoded-schedule feasibility audit
-              and physical energy-cost post-evaluation
+        Workload traces / synthetic stress instances
+                            |
+                            v
+          Jobs, resources, windows, compatibility
+                            |
+              +-------------+-------------+
+              |                           |
+              v                           v
+      Full MILP baseline          Reduced scheduling QUBO
+      Gurobi source of truth      Assignment + GPU slack
+              |                           |
+              |                   +-------+-------+
+              |                   |               |
+              v                   v               v
+      Physical dispatch       Annealing          PCE
+      and energy cost         SA / D-Wave   statevector / QPU
+              |                   |               |
+              +-------------------+---------------+
+                                  |
+                                  v
+                  Common physical feasibility audit
+                    and energy-cost comparison
 ~~~
 
 The split is intentional. The MILP models the full operational problem; the QUBO isolates its discrete scheduling core. Every QUBO sample is decoded and checked against assignment windows and GPU capacity before it is treated as a candidate schedule.
@@ -58,10 +61,9 @@ The split is intentional. The MILP models the full operational problem; the QUBO
 | Synthetic stress generator | Implemented | Feasible-by-construction 15-minute, multi-node A100 scheduling instances with configurable conflict pressure |
 | Trace exploration | Implemented | Alibaba, Kalos, and Seren workload analyses inform realistic workload and hardware assumptions |
 | Reduced QUBO builder | Implemented and tested | Explicit binary assignment, GPU-slack capacity encoding, effective-price energy term, and peak-smoothing proxy |
-| Local simulated annealing | Implemented | Reproducible QUBO sampling through D-Wave Ocean's simulated annealing sampler |
-| Tensor-network solver | Implemented | Exact min-sum variable elimination for small QUBOs; exposes graph-width limits rather than hiding them |
-| PCE notebook | Exploratory implementation | Tests compressed Pauli-correlation encodings on small reduced QUBOs |
-| QAOA and hardware runs | Planned | Kept separate until the encoding, scale, and feasibility protocol are validated |
+| Annealing workflow | Implemented locally; hardware evaluation in progress | Reproducible QUBO sampling with D-Wave Ocean, shared decoding, and physical feasibility auditing |
+| PCE workflow | Implemented as a research prototype | Fixed-alpha and progressive-binarization experiments, statevector evaluation, IBM Runtime integration, and duplicate-only schedule repair |
+| Cross-method evaluator | Implemented | Recomputes physical feasibility, renewable/grid use, facility energy, and cost independently of solver objective |
 
 ## The Full Optimization Model
 
@@ -129,7 +131,7 @@ The project treats feasibility, optimality, and hardware scale as different ques
 3. **Measure classical difficulty.** Report Gurobi incumbent, bound, MIP gap, runtime, variable count, and constraint count rather than only an objective value.
 4. **Calibrate QUBO penalties on development instances.** Keep held-out target instances out of the penalty-selection process.
 5. **Audit every decoded QUBO sample.** Assignment count, start windows, and GPU capacity are hard gates before a cost comparison.
-6. **Use a common physical evaluator.** Renewable use, grid import, PUE, and peak metrics are recomputed from a fixed schedule for both solver families.
+6. **Use a common physical evaluator.** Renewable use, grid import, PUE, and peak metrics are recomputed from a fixed schedule for MILP, annealing, and PCE.
 
 ### Current 15-Minute Stress Target
 
@@ -151,19 +153,19 @@ This is not presented as evidence of quantum advantage. It is a controlled targe
 
 The reproducible protocol is in [notebook 21](notebooks/21_qubo_single_cluster_15min_benchmark.ipynb).
 
-## Quantum Research Path
+## Optimization Comparison Scope
 
-The shared QUBO coefficient representation is deliberately solver-agnostic.
+The thesis evaluates three methods against a common scheduling and physical-cost protocol:
 
-- **Simulated annealing:** local baseline for annealing behavior and penalty calibration.
-- **D-Wave / Leap:** hardware or hybrid annealing only after recording logical graph size, coupling density, and embedding feasibility.
-- **Fujitsu Digital Annealer:** same QUBO coefficients, enabling an architecture-neutral annealing comparison.
-- **Tensor networks:** exact small-QUBO reference and a way to study whether interaction graph structure, not merely variable count, determines tractability.
-- **PCE:** compresses many classical binary variables into Pauli-correlation observables on fewer qubits. It reduces qubit count but creates its own measurement, optimization, and post-decoding feasibility challenges.
-- **QAOA:** reserved for small, verified QUBO slices where one logical binary variable per qubit is still realistic.
-- **Hybrid decomposition:** the likely operational destination: classical rolling-horizon control for the full system and targeted QUBO extraction for structurally dense subproblems.
+1. **MILP / Gurobi:** the full operational reference model and source of feasibility and optimality benchmarks.
+2. **Quantum annealing:** the reduced QUBO solved first with local simulated annealing and then, subject to access and embedding feasibility, on D-Wave hardware or hybrid services.
+3. **PCE:** the same QUBO represented through Pauli-correlation observables, evaluated with statevector simulation and selected IBM QPU experiments.
 
-The [PCE note](docs/PCE_APPROACH.md) explains the compression hypothesis and its constraints. The [tensor-network guide](docs/tensor_network_qubo_study_guide.html) explains the complementary graph-structure perspective.
+Annealing and PCE share the same assignment, GPU-capacity, energy, and optional peak-smoothing terms. Their decoded schedules pass through the same raw-GPU feasibility audit and physical energy-cost calculation. PCE results distinguish direct feasibility from schedules made feasible by an explicitly reported classical duplicate-removal step.
+
+Tensor networks, QAOA, Fujitsu Digital Annealing, and broader hybrid decomposition are not part of the current comparison. They may be revisited as future work after the MILP/annealing/PCE evaluation is complete.
+
+The [PCE note](docs/PCE_APPROACH.md) explains the compression hypothesis, circuit construction, optimization procedure, and feasibility limitations.
 
 ## Static and Dynamic Operation
 
@@ -177,18 +179,19 @@ every hour:
   release near-term decisions to the cluster scheduler
 ~~~
 
-This division is operationally realistic and provides a disciplined place to test hybrid methods: quantum encodings are candidates for selected short, high-interaction windows, not a substitute for the full control plane.
+This division is operationally realistic, but the rolling-horizon implementation is outside the current solver comparison. It remains a deployment extension rather than a fourth methodology.
 
 ## Repository Guide
 
 ~~~
 src/milp/                    Canonical Gurobi model and solve wrapper
 src/instance_generator/      Trace-calibrated and synthetic stress generators
-src/quantum/                 QUBO builder, decoder, tensor network, benchmarking
+src/quantum/                 QUBO, annealing, PCE, repair, and benchmarking tools
 notebooks/12_...             Tiny/absurd MILP validation cases
 notebooks/13_...             Term-by-term QUBO construction
 notebooks/20_...             One-cluster 15-minute synthetic stress generation
-notebooks/21_...             QUBO calibration and held-out benchmark protocol
+notebooks/21_...             QUBO calibration and held-out annealing benchmark
+notebooks/23_...             PCE encoding, optimization, feasibility, and repair
 docs/                        Mathematical formulations and research notes
 tests/                       Unit and regression tests
 ~~~
@@ -222,9 +225,8 @@ The data and experiment artifacts in this repository are intentionally kept sepa
 - [Resource compatibility assumptions](docs/RESOURCE_COMPATIBILITY.md)
 - [Tiny-instance validation plan](docs/TINY_ABSURD_INSTANCE_VALIDATION.md)
 - [PCE approach](docs/PCE_APPROACH.md)
-- [Tensor-network QUBO guide](docs/tensor_network_qubo_study_guide.html)
 - [Project roadmap](docs/PROJECT_ROADMAP.md)
 
 ## Research Position
 
-This repository does not frame quantum computing as a generic replacement for classical optimization. It uses a classical model as a rigorous source of truth, derives an auditable reduced quantum encoding, measures the resulting combinatorial graph, and reports feasibility separately from objective value. That is the standard required to make an energy-aware quantum optimization claim worth taking seriously.
+This repository does not frame quantum computing as a generic replacement for classical optimization. It uses MILP as a rigorous source of truth, compares annealing and PCE on an auditable reduced QUBO, and reports feasibility separately from objective value. The goal is a defensible three-method comparison, not a catalogue of unrelated quantum algorithms.

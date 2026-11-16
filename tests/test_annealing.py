@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.quantum.annealing import run_simulated_annealing
+from src.quantum.annealing import _energies_are_consistent, run_simulated_annealing
 from src.quantum.qubo_builder import SchedulingQubo
+
+
+def test_energy_consistency_allows_large_qubo_roundoff() -> None:
+    """Different summation orders may produce harmless micro-scale drift."""
+
+    assert _energies_are_consistent(2189.7090151999146, 2189.7090075755477)
+    assert not _energies_are_consistent(2189.7190151999146, 2189.7090075755477)
 
 
 def test_simulated_annealing_returns_feasible_lowest_energy_schedule() -> None:

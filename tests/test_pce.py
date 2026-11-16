@@ -13,6 +13,7 @@ from src.quantum.pce import (
     minimum_pce_qubits,
     pauli_labels_for_qubo,
     qubo_to_ising,
+    run_fixed_alpha,
     run_fixed_alpha_grid,
     run_progressive_binarization,
 )
@@ -109,3 +110,26 @@ def test_fixed_alpha_and_progressive_binarization_keep_feasible_candidate() -> N
     )
     assert pb_result.selected_candidate.validation["feasible"]
     assert len(pb_result.stages) == 1
+
+
+def test_powell_respects_objective_evaluation_cap() -> None:
+    """Powell uses maxfev, so the configured budget caps actual loss calls."""
+
+    qubo, jobs, clusters = _single_job_inputs()
+
+    def correlations(_: np.ndarray) -> np.ndarray:
+        return np.array([1.0])
+
+    run = run_fixed_alpha(
+        1.0,
+        np.array([0.0]),
+        correlations,
+        qubo,
+        jobs,
+        clusters,
+        [0],
+        FixedAlphaConfig(maxiter=5, optimizer="Powell"),
+    )
+
+    assert run.optimization.nfev <= 5
+    assert len(run.history) == run.optimization.nfev

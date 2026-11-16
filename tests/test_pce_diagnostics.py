@@ -3,7 +3,9 @@
 import numpy as np
 import pandas as pd
 import pytest
+from types import SimpleNamespace
 
+import src.quantum.pce as pce_module
 from src.config import ModelConfig
 from src.quantum.pce import FixedAlphaConfig
 from src.quantum.pce_diagnostics import (
@@ -65,10 +67,18 @@ def test_penalty_components_reconstruct_binary_and_relaxed_objectives():
         sum(qubo_energy(term, bits) for term in components.values())
     )
 
+    evaluator_calls = []
+
+    def correlations(theta):
+        """Return deterministic correlations and track the terminal re-evaluation."""
+
+        evaluator_calls.append(np.asarray(theta, dtype=float).copy())
+        return np.full(qubo.num_variables, np.tanh(theta[0] + 0.2))
+
     result = run_fixed_alpha_penalty_trace(
         0.5,
         np.array([0.0]),
-        lambda theta: np.full(qubo.num_variables, np.tanh(theta[0] + 0.2)),
+        correlations,
         qubo,
         jobs,
         clusters,
@@ -76,14 +86,20 @@ def test_penalty_components_reconstruct_binary_and_relaxed_objectives():
         components,
         FixedAlphaConfig(maxiter=4),
     )
-    assert len(result.evaluations) == len(result.run.history)
+    assert len(result.evaluations) == len(result.run.history) + 1
+    assert len(result.candidates) == len(result.run.history) + 1
+    assert len(evaluator_calls) == len(result.run.history) + 1
+    assert result.evaluations.iloc[-1]["evaluation_type"] == "post_optimizer_final"
+    assert result.candidates[-1].theta == pytest.approx(result.run.optimization.x)
     assert np.allclose(
         result.evaluations["relaxed_total"],
         result.evaluations[["relaxed_energy", "relaxed_assignment", "relaxed_gpu"]].sum(axis=1),
     )
     assert np.allclose(
         result.run.history["qubo_energy"],
-        result.evaluations[["decoded_energy", "decoded_assignment", "decoded_gpu"]].sum(axis=1),
+        result.evaluations.iloc[:-1][
+            ["decoded_energy", "decoded_assignment", "decoded_gpu"]
+        ].sum(axis=1),
     )
 
 
@@ -95,3 +111,45 @@ def test_penalty_components_require_disabled_peak_proxy():
     qubo = build_scheduling_qubo(jobs, hourly, clusters, config, weights)
     with pytest.raises(ValueError, match="peak smoothing"):
         split_scheduling_qubo(qubo, hourly, clusters, config, weights)
+
+
+def test_trace_retains_a_feasible_terminal_sample_missing_from_optimizer_history(monkeypatch):
+    """The post-optimizer measurement must count even if objective samples were infeasible."""
+
+    jobs, hourly, clusters, config = _inputs()
+    weights = QuboPenaltyWeights(assignment=1000.0, gpu_capacity=0.0, peak_smoothing=0.0)
+    qubo = build_scheduling_qubo(jobs, hourly, clusters, config, weights)
+    components = split_scheduling_qubo(qubo, hourly, clusters, config, weights)
+    calls = 0
+
+    def evaluator(_theta):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return np.ones(qubo.num_variables)
+        return np.array([1.0, -1.0, -1.0, 1.0])
+
+    def one_objective_evaluation(objective, initial_theta, **_kwargs):
+        objective(initial_theta)
+        return SimpleNamespace(x=np.asarray(initial_theta), success=True, nfev=1)
+
+    monkeypatch.setattr(pce_module, "minimize", one_objective_evaluation)
+    trace = run_fixed_alpha_penalty_trace(
+        1.0,
+        np.array([0.0]),
+        evaluator,
+        qubo,
+        jobs,
+        clusters,
+        [0, 1],
+        components,
+        FixedAlphaConfig(maxiter=1),
+    )
+
+    assert len(trace.run.history) == 1
+    assert len(trace.candidates) == 2
+    assert not trace.candidates[0].validation["feasible"]
+    assert trace.candidates[-1].validation["feasible"]
+    assert trace.run.selected_candidate.validation["feasible"]
+    assert trace.evaluations.iloc[-1]["evaluation_type"] == "post_optimizer_final"
+    assert bool(trace.evaluations.iloc[-1]["schedule_feasible"])
