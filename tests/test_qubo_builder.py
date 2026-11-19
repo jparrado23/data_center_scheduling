@@ -4,6 +4,9 @@ import pandas as pd
 from src.config import ModelConfig
 from src.quantum.qubo_builder import (
     QuboPenaltyWeights,
+    SchedulingQubo,
+    UnbalancedGpuPenaltyWeights,
+    add_gpu_capacity_unbalanced_penalty,
     build_scheduling_qubo,
     decode_qubo_sample,
     qubo_energy,
@@ -232,6 +235,53 @@ def test_gpu_slack_bits_reduce_capacity_penalty():
             sample[index] = 1
 
     assert qubo_energy(qubo, sample) < missing_slack_energy
+
+
+def test_unbalanced_gpu_penalty_matches_margin_formula_without_slack_bits():
+    qubo = SchedulingQubo(
+        variables=[
+            {
+                "variable_type": "assignment",
+                "cluster": "cluster_t4",
+                "start": 0,
+                "duration": 1,
+                "gpu_count_required": 1.0,
+            },
+            {
+                "variable_type": "assignment",
+                "cluster": "cluster_t4",
+                "start": 0,
+                "duration": 1,
+                "gpu_count_required": 1.0,
+            },
+        ]
+    )
+    clusters = _clusters().copy()
+    clusters["gpu_count"] = 1
+    clusters["gpu_capacity"] = 1
+    weights = UnbalancedGpuPenaltyWeights(linear=3.0, quadratic=2.0)
+
+    add_gpu_capacity_unbalanced_penalty(qubo, clusters, [0], weights)
+
+    assert qubo.num_variables == 2
+    assert qubo_energy(qubo, [0, 0]) == -1.0  # h = 1: -3h + 2h^2
+    assert qubo_energy(qubo, [1, 0]) == 0.0  # h = 0
+    assert qubo_energy(qubo, [1, 1]) == 5.0  # h = -1
+
+
+def test_build_unbalanced_qubo_uses_no_gpu_slack_variables():
+    qubo = build_scheduling_qubo(
+        _jobs(),
+        _hourly(),
+        _clusters(),
+        ModelConfig(delta_t=1.0),
+        unbalanced_gpu_weights=UnbalancedGpuPenaltyWeights(linear=3.0, quadratic=2.0),
+    )
+
+    assert qubo.metadata["num_assignment_variables"] == 4
+    assert qubo.metadata["num_slack_variables"] == 0
+    assert qubo.num_variables == 4
+    assert "gpu_capacity_unbalanced" in qubo.metadata["terms"]
 
 
 def test_validate_decoded_schedule_catches_missing_assignment():

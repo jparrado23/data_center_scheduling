@@ -30,6 +30,20 @@ class QuboPenaltyWeights:
     peak_smoothing: float = 1.0
 
 
+@dataclass(frozen=True)
+class UnbalancedGpuPenaltyWeights:
+    """Linear and quadratic weights for a slack-free GPU inequality penalty."""
+
+    linear: float
+    quadratic: float
+
+    def __post_init__(self) -> None:
+        """Require non-negative coefficients and a positive quadratic term."""
+
+        if self.linear < 0 or self.quadratic <= 0:
+            raise ValueError("unbalanced GPU weights require linear >= 0 and quadratic > 0")
+
+
 @dataclass
 class SchedulingQubo:
     """QUBO coefficients and metadata needed to decode binary samples."""
@@ -216,6 +230,44 @@ def add_gpu_capacity_constraint_penalty(
     _add_gpu_capacity_penalties_with_slack(qubo, clusters_df, hours, weight)
 
 
+def add_gpu_capacity_unbalanced_penalty(
+    qubo: SchedulingQubo,
+    clusters_df: pd.DataFrame,
+    hours: list[int],
+    weights: UnbalancedGpuPenaltyWeights,
+) -> None:
+    """Add the slack-free unbalanced penalty for each GPU inequality.
+
+    For margin ``h = capacity - load``, this adds
+    ``-linear * h + quadratic * h**2``. Constants are retained so direct QUBO
+    energies equal the stated penalty, although they do not affect sampling.
+    """
+
+    cluster_lookup = clusters_df.set_index("cluster_id").to_dict(orient="index")
+    active = _active_assignments_by_cluster_hour(qubo, hours)
+    for cluster_id, cluster_data in cluster_lookup.items():
+        capacity = _cluster_gpu_capacity(cluster_data)
+        if capacity < 0:
+            raise ValueError(f"cluster {cluster_id} has negative GPU capacity")
+        for hour in hours:
+            active_indices = active.get((str(cluster_id), hour), [])
+            if not active_indices:
+                continue
+            terms = {
+                index: float(qubo.variables[index]["gpu_count_required"])
+                for index in active_indices
+            }
+            qubo.offset -= weights.linear * capacity
+            for index, coefficient in terms.items():
+                _add_linear(qubo, index, weights.linear * coefficient)
+            _add_squared_equality_penalty(
+                qubo,
+                terms,
+                rhs=float(capacity),
+                weight=weights.quadratic,
+            )
+
+
 def add_fixed_pue_peak_penalty(
     qubo: SchedulingQubo,
     hours: list[int],
@@ -360,18 +412,21 @@ def build_scheduling_qubo(
     clusters_df: pd.DataFrame,
     config: ModelConfig,
     weights: QuboPenaltyWeights | None = None,
+    *,
+    unbalanced_gpu_weights: UnbalancedGpuPenaltyWeights | None = None,
 ) -> SchedulingQubo:
     """Build the reduced scheduling QUBO from model-ready instance tables.
 
     The implemented Hamiltonian is:
 
-    ``H = H_energy_fixed_pue + H_assignment + H_gpu_slack + H_peak_fixed_pue``.
+    ``H = H_energy_fixed_pue + H_assignment + H_gpu + H_peak_fixed_pue``.
 
     Compatibility is handled by omitting infeasible assignment variables. GPU
-    capacity is encoded exactly with binary unused-GPU slack. CPU, memory,
-    renewable/grid dispatch, exact contracted peak billing, and battery dynamics
-    remain outside this first reduced QUBO and should be checked or modeled
-    separately.
+    By default, GPU capacity is encoded exactly with binary unused-GPU slack.
+    Passing ``unbalanced_gpu_weights`` instead applies the slack-free heuristic
+    inequality penalty from Montanez-Barrera et al. CPU, memory, renewable/grid
+    dispatch, exact contracted peak billing, and battery dynamics remain outside
+    this reduced QUBO and should be checked or modeled separately.
     """
 
     validate_jobs(jobs_df)
@@ -385,8 +440,17 @@ def build_scheduling_qubo(
 
     qubo = SchedulingQubo(
         metadata={
-            "formulation": "fixed_pue_assignment_gpu_slack_energy_peak_qubo",
+            "formulation": (
+                "fixed_pue_assignment_gpu_unbalanced_energy_peak_qubo"
+                if unbalanced_gpu_weights is not None
+                else "fixed_pue_assignment_gpu_slack_energy_peak_qubo"
+            ),
             "weights": penalty_weights.__dict__.copy(),
+            "unbalanced_gpu_weights": (
+                unbalanced_gpu_weights.__dict__.copy()
+                if unbalanced_gpu_weights is not None
+                else None
+            ),
             "hours": hours,
             "terms": {},
         }
@@ -405,11 +469,18 @@ def build_scheduling_qubo(
         "quadratic_terms_after_term": len(qubo.quadratic),
         "description": "Exact one-hot job assignment penalty.",
     }
-    add_gpu_capacity_constraint_penalty(qubo, clusters_df, hours, penalty_weights.gpu_capacity)
-    qubo.metadata["terms"]["gpu_capacity_with_slack"] = {
+    if unbalanced_gpu_weights is None:
+        add_gpu_capacity_constraint_penalty(qubo, clusters_df, hours, penalty_weights.gpu_capacity)
+        gpu_term_name = "gpu_capacity_with_slack"
+        gpu_description = "Exact GPU capacity penalty using binary unused-GPU slack per cluster and time."
+    else:
+        add_gpu_capacity_unbalanced_penalty(qubo, clusters_df, hours, unbalanced_gpu_weights)
+        gpu_term_name = "gpu_capacity_unbalanced"
+        gpu_description = "Slack-free heuristic GPU inequality penalty per cluster and time."
+    qubo.metadata["terms"][gpu_term_name] = {
         "linear_terms_after_term": len(qubo.linear),
         "quadratic_terms_after_term": len(qubo.quadratic),
-        "description": "Exact GPU capacity penalty using binary unused-GPU slack per cluster and time.",
+        "description": gpu_description,
     }
     add_fixed_pue_peak_penalty(qubo, hours, hourly_lookup, penalty_weights.peak_smoothing)
     qubo.metadata["terms"]["peak_fixed_pue"] = {

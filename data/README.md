@@ -149,6 +149,35 @@ renewable/grid split economically from `renewable_price` and `grid_price`, while
 all demand must be served. Unused renewable availability is reported as
 curtailment.
 
+### Effective-price inputs for reduced QUBO experiments
+
+QUBO experiments retain the original `grid_price`, `renewable_available`, and
+`pue` columns for physical post-evaluation, but derive an additional
+instance-specific `effective_price` before constructing the QUBO. The shared
+helper is `src.quantum.benchmarking.add_effective_price_for_qubo`.
+
+For a given jobs table and cluster configuration it computes:
+
+```text
+average_facility_load = PUE * sum(job_power * job_duration) / number_of_slots
+capacity_floor = min_load_fraction * PUE * sum(cluster_IT_power_capacity)
+expected_load_scale = max(average_facility_load, capacity_floor)
+renewable_share[t] = clip(renewable_available[t] / expected_load_scale, 0, 1)
+effective_price[t] = renewable_share[t] * renewable_price
+                   + (1 - renewable_share[t]) * grid_price[t]
+```
+
+`min_load_fraction` defaults to `0.10`. `renewable_price` should be provided by
+the experiment. If omitted, the current helper uses `0.8 * min(grid_price)` as
+a provisional placeholder.
+
+The QUBO input adapter places `effective_price` in the builder's price column
+and sets its renewable-availability field to zero. This is intentional: it
+prevents a second renewable-price transformation inside the reduced builder.
+The original energy table must still be retained because decoded schedules are
+re-evaluated with the physical renewable limit and grid dispatch. Effective
+price is a scheduling proxy and must not be reported as realized energy cost.
+
 OMIE `MARGINALPDBC` files are stored under `docs/energy_price/`. They can be
 converted into grid prices with:
 

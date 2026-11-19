@@ -27,3 +27,10 @@ experiments/outputs/*
 # Generated instance inputs, results, and metadata.
 *.csv
 *.json
+
+# Hard-instance frontier search outputs (notebook 25).
+results/hard_frontier/
+results/hard_frontier_smoke/
+
+# Annealing ladder outputs (notebook 27).
+results/annealing_ladder/

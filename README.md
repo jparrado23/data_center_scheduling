@@ -118,6 +118,37 @@ H = H_{energy} + \lambda_{assign}H_{assign}
 
 Compatibility is handled structurally: incompatible job-partition-start variables are never created. This both reduces QUBO size and avoids relying on a soft penalty for a hard technical rule.
 
+### Effective Energy Price Used by the QUBO
+
+The MILP decides renewable consumption and grid import explicitly. The QUBO
+does not include those dispatch variables, so it receives one
+instance-specific scheduling price per slot. The project computes it in four
+steps:
+
+1. Estimate average facility load from total job IT energy divided by the
+   horizon and multiplied by PUE.
+2. Apply a floor equal to 10% of total facility power capacity so that a tiny
+   workload does not treat the solar profile as unlimited.
+3. Estimate renewable coverage as solar availability divided by that load
+   scale, clipped to $[0,1]$.
+4. Blend renewable and grid prices using that estimated coverage:
+
+\[
+\pi_t^{eff}
+=r_t\pi^{ren}+(1-r_t)\pi_t^{grid}.
+\]
+
+The renewable price can be configured explicitly. If omitted, current
+benchmarking uses a provisional value equal to 80% of the minimum grid price.
+That default is an experimental assumption, not a measured renewable tariff.
+
+The effective price only guides the binary scheduling search. It does not
+claim that the corresponding renewable/grid split is physically realized.
+After decoding, every MILP, annealing, and PCE schedule is evaluated with the
+original solar availability, grid prices, PUE, renewable price, and grid-import
+peak logic. Cross-method cost comparisons use this common physical evaluation,
+not QUBO energy.
+
 The QUBO intentionally omits exact renewable/grid dispatch, contracted-peak billing, battery dynamics, and CPU/memory penalties. Those choices would add many auxiliary variables or higher-order terms. They remain in the MILP and in the physical post-evaluation of any decoded QUBO schedule.
 
 Read the derivation in [QUBO_FORMULATION.md](docs/QUBO_FORMULATION.md) or walk through the small constructive example in [notebook 13](notebooks/13_qubo_step_by_step_formulation_simplified.ipynb).

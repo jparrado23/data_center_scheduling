@@ -113,18 +113,58 @@ billing.
 
 ## 5. Energy-Cost Term
 
-The implemented QUBO energy term approximates renewable/grid dispatch with an
-effective hourly price:
+The reduced QUBO has no renewable-consumption or grid-import decision
+variables. It therefore approximates dispatch through an **instance-specific
+effective hourly price** computed before QUBO construction.
+
+First, estimate the average facility load implied by the jobs:
 
 $$
-\pi^{eff}_t =
-\begin{cases}
-\min(\pi^{grid}_t,\pi^{ren}), & G^{ren}_t > 0 \\
-\pi^{grid}_t, & G^{ren}_t = 0
-\end{cases}
+\bar L^{facility}
+=
+\eta^{pue}
+\frac{\sum_i p_i d_i}{|\mathcal{T}|}.
 $$
 
-The resulting linear term is:
+To prevent a very small instance from interpreting the solar plant as covering
+all demand, impose a minimum scale based on a fraction $\rho_{min}$ of total IT
+power capacity:
+
+$$
+L^{floor}
+=
+\rho_{min}\eta^{pue}\sum_k C_k^{IT},
+\qquad
+L^{scale}=\max(\bar L^{facility},L^{floor}).
+$$
+
+The current implementation uses $\rho_{min}=0.10$ by default. For each time
+slot, renewable availability is converted into an estimated renewable share:
+
+$$
+r_t
+=
+\operatorname{clip}\left(
+\frac{G^{ren}_t}{L^{scale}},0,1
+\right).
+$$
+
+The effective price is the corresponding weighted average:
+
+$$
+\pi^{eff}_t
+=
+r_t\pi^{ren}
++(1-r_t)\pi^{grid}_t.
+$$
+
+The renewable price $\pi^{ren}$ can be supplied explicitly. If it is absent,
+the benchmarking helper currently uses the provisional assumption
+$\pi^{ren}=0.8\min_t\pi^{grid}_t$. This is a scenario assumption, not a market
+observation, and should be replaced by the selected renewable LCOE or
+opportunity-cost assumption in final experiments.
+
+The resulting QUBO energy term is:
 
 $$
 H_{energy}(x)
@@ -137,9 +177,27 @@ H_{energy}(x)
 x_{i,k,s}
 $$
 
-This is intentionally a proxy. The exact MILP renewable/grid split is recovered
-only by solving or re-evaluating the decoded schedule under the shared project
-evaluator.
+In code, `add_effective_price_for_qubo` creates `expected_load_scale_mw`,
+`renewable_share`, and `effective_price`. Then
+`make_effective_price_qubo_inputs` passes $\pi_t^{eff}$ through the builder's
+price column and sets its renewable-availability input to zero. This avoids
+triggering the builder's older binary renewable-price rule and ensures the
+continuous effective price is used exactly once.
+
+This construction is intentionally a scheduling proxy, not a dispatch model:
+
+- $r_t$ is estimated before the schedule is known;
+- the QUBO does not track how much renewable energy all selected jobs consume;
+- it does not enforce renewable availability through a balance equation;
+- differently sized instances can obtain different effective prices from the
+  same solar and grid-price profile because $L^{scale}$ is instance-specific.
+
+After decoding, every schedule is evaluated against the original physical
+inputs. The shared evaluator applies PUE, allocates renewable energy only up to
+availability when it is economically preferred, assigns the remaining demand
+to the grid, and computes actual cost and grid-import peak. MILP and QUBO
+results must be compared using this physical post-evaluation, not their native
+solver objectives.
 
 ## 6. Assignment Penalty
 

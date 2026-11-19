@@ -15,6 +15,10 @@ import numpy as np
 import pandas as pd
 
 
+PLANTING_RULES = frozenset({"greedy_min_peak", "random_feasible"})
+DAY_MINUTES = 24 * 60
+
+
 @dataclass(frozen=True)
 class SingleClusterStressConfig:
     """Control the size and structural difficulty of a generated instance."""
@@ -37,6 +41,12 @@ class SingleClusterStressConfig:
     gpu_tdp_kw: float = 0.4
     gpus_per_node: int = 8
     max_attempts: int = 2_000
+    # Difficulty knobs added for the hard-instance frontier search. Every
+    # default reproduces the original generator exactly (same RNG stream).
+    steer_to_cheap_slot: bool = True
+    power_intensity_range: tuple[float, float] = (1.0, 1.0)
+    planting: str = "greedy_min_peak"
+    random_planting_restarts: int = 25
 
     def __post_init__(self) -> None:
         """Validate generation parameters."""
@@ -53,8 +63,17 @@ class SingleClusterStressConfig:
             raise ValueError("min_price_spread_ratio must exceed one")
         if not 0 < self.cheap_price_quantile < 1:
             raise ValueError("cheap_price_quantile must be in (0, 1)")
-        if self.min_peak_potential_load_ratio <= 0:
-            raise ValueError("min_peak_potential_load_ratio must be positive")
+        if self.min_peak_potential_load_ratio < 0:
+            raise ValueError("min_peak_potential_load_ratio must be non-negative")
+        if len(self.power_intensity_range) != 2:
+            raise ValueError("power_intensity_range must be a (low, high) pair")
+        low, high = self.power_intensity_range
+        if not 0 < low <= high:
+            raise ValueError("power_intensity_range must satisfy 0 < low <= high")
+        if self.planting not in PLANTING_RULES:
+            raise ValueError(f"planting must be one of {sorted(PLANTING_RULES)}")
+        if self.random_planting_restarts <= 0:
+            raise ValueError("random_planting_restarts must be positive")
         if self.pue <= 0 or self.gpu_tdp_kw <= 0 or self.gpus_per_node <= 0:
             raise ValueError("power and PUE parameters must be positive")
         if self.max_attempts <= 0:
@@ -82,6 +101,28 @@ class SingleClusterStressConfig:
         """Return maximum IT power of one eight-GPU A100 node in MW."""
 
         return self.gpus_per_node * self.gpu_tdp_kw / 1000.0
+
+
+def jobs_for_target_utilization(
+    config: SingleClusterStressConfig,
+    target_u: float,
+    horizon_slots: int | None = None,
+) -> int:
+    """Return the job count whose expected utilisation matches ``target_u``.
+
+    Node demand and duration are sampled independently, so
+    ``E[d * p] = E[d] * E[p]`` and the expected utilisation of ``n`` jobs is
+    ``n * E[d * p] / (C * T)``. Matching ``num_jobs`` to the target keeps the
+    accept/reject loop on utilisation from spinning. ``T`` defaults to one day
+    of ``config.slot_minutes`` slots.
+    """
+
+    if not 0 < target_u <= 1:
+        raise ValueError("target_u must be in (0, 1]")
+    horizon = DAY_MINUTES // config.slot_minutes if horizon_slots is None else int(horizon_slots)
+    expected_nodes = float(np.dot(config.node_demand_values, config.node_demand_probabilities))
+    expected_duration = float(np.dot(config.duration_values, config.duration_probabilities))
+    return max(1, int(round(target_u * config.node_capacity * horizon / (expected_nodes * expected_duration))))
 
 
 def expand_hourly_energy_to_slots(hourly_df: pd.DataFrame, slot_minutes: int) -> pd.DataFrame:
@@ -224,6 +265,45 @@ def _place_hidden_schedule(
     return starts, load
 
 
+def _place_random_feasible_schedule(
+    nodes: np.ndarray,
+    durations: np.ndarray,
+    eligible_starts: dict[int, np.ndarray],
+    node_capacity: int,
+    rng: np.random.Generator,
+    restarts: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Plant a schedule with random job order and a random capacity-feasible start.
+
+    Unlike the greedy min-peak rule, the certificate carries no load-balancing
+    structure that a heuristic could exploit. A dead end restarts the whole
+    placement, up to ``restarts`` times.
+    """
+
+    horizon_slots = max(starts.max() + int(durations[index]) for index, starts in eligible_starts.items())
+    for _ in range(restarts):
+        load = np.zeros(horizon_slots, dtype=int)
+        starts = np.full(len(nodes), -1, dtype=int)
+        complete = True
+        for index in rng.permutation(len(nodes)):
+            duration = int(durations[index])
+            demand = int(nodes[index])
+            feasible = [
+                int(start)
+                for start in eligible_starts[int(index)]
+                if load[int(start):int(start) + duration].max() + demand <= node_capacity
+            ]
+            if not feasible:
+                complete = False
+                break
+            start = feasible[int(rng.integers(len(feasible)))]
+            load[start:start + duration] += demand
+            starts[index] = start
+        if complete:
+            return starts, load
+    return None
+
+
 def _starts_near_required_slot(
     duration: int,
     horizon_slots: int,
@@ -290,11 +370,13 @@ def generate_single_cluster_stress_instance(
     cheapest_slot = int(energy.loc[energy["effective_price"].idxmin(), "hour"])
     rng = np.random.default_rng(seed)
     total_capacity_slots = config.node_capacity * horizon_slots
+    rejections = {"utilization": 0, "eligible_starts": 0, "planting": 0, "window": 0, "cheap_peak": 0}
     for attempt in range(1, config.max_attempts + 1):
         nodes = rng.choice(config.node_demand_values, size=config.num_jobs, p=config.node_demand_probabilities).astype(int)
         durations = rng.choice(config.duration_values, size=config.num_jobs, p=config.duration_probabilities).astype(int)
         utilization = float((nodes * durations).sum() / total_capacity_slots)
         if abs(utilization - config.target_utilization) > config.utilization_tolerance:
+            rejections["utilization"] += 1
             continue
 
         start_costs = {duration: _start_costs(effective_price, int(duration)) for duration in set(durations)}
@@ -303,11 +385,12 @@ def generate_single_cluster_stress_instance(
         target_nodes = config.min_peak_potential_load_ratio * config.node_capacity
         selected_for_cheap_slot: set[int] = set()
         accumulated_nodes = 0
-        for index in sorted(range(config.num_jobs), key=lambda item: int(nodes[item]), reverse=True):
-            selected_for_cheap_slot.add(index)
-            accumulated_nodes += int(nodes[index])
-            if accumulated_nodes >= target_nodes:
-                break
+        if config.steer_to_cheap_slot:
+            for index in sorted(range(config.num_jobs), key=lambda item: int(nodes[item]), reverse=True):
+                selected_for_cheap_slot.add(index)
+                accumulated_nodes += int(nodes[index])
+                if accumulated_nodes >= target_nodes:
+                    break
         eligible_starts: dict[int, np.ndarray] = {}
         for index, duration in enumerate(durations):
             duration_costs = start_costs[int(duration)]
@@ -341,9 +424,16 @@ def generate_single_cluster_stress_instance(
             if len(eligible_starts[index]) == 0:
                 break
         if len(eligible_starts) != config.num_jobs or any(len(starts) == 0 for starts in eligible_starts.values()):
+            rejections["eligible_starts"] += 1
             continue
-        placed = _place_hidden_schedule(nodes, durations, eligible_starts, config.node_capacity, rng)
+        if config.planting == "random_feasible":
+            placed = _place_random_feasible_schedule(
+                nodes, durations, eligible_starts, config.node_capacity, rng, config.random_planting_restarts
+            )
+        else:
+            placed = _place_hidden_schedule(nodes, durations, eligible_starts, config.node_capacity, rng)
         if placed is None:
+            rejections["planting"] += 1
             continue
         hidden_starts, hidden_load = placed
 
@@ -381,12 +471,23 @@ def generate_single_cluster_stress_instance(
                 }
             )
         if not valid:
+            rejections["window"] += 1
             continue
         jobs = pd.DataFrame(job_rows)
         potential_load = potential_active_load(jobs, horizon_slots)
         cheap_peak_ratio = float(potential_load[cheap_slots].max() / config.node_capacity)
         if cheap_peak_ratio < config.min_peak_potential_load_ratio:
+            rejections["cheap_peak"] += 1
             continue
+        power_intensity = np.ones(config.num_jobs)
+        if tuple(config.power_intensity_range) != (1.0, 1.0):
+            # Drawn only after acceptance and only for non-default ranges, so
+            # the default RNG stream (and output) is unchanged. Node demand is
+            # not scaled: only the energy weight of each job changes.
+            low, high = config.power_intensity_range
+            power_intensity = rng.uniform(low, high, size=config.num_jobs)
+            jobs["power"] = jobs["power"] * power_intensity
+            jobs["power_kw"] = jobs["power_kw"] * power_intensity
 
         clusters = build_single_a100_cluster(config)
         hidden = jobs[["job_id", "node_units_required", "duration"]].copy()
@@ -420,6 +521,11 @@ def generate_single_cluster_stress_instance(
             "targeted_cheap_potential_nodes": int(accumulated_nodes),
             "cheap_peak_potential_load_ratio": cheap_peak_ratio,
             "hidden_peak_load_ratio": float(hidden_load.max() / config.node_capacity),
+            "rejections": dict(rejections),
+            "power_intensity": [float(value) for value in power_intensity],
         }
         return jobs, clusters, energy, hidden, diagnostics, metadata
-    raise RuntimeError("Could not construct an instance meeting the configured stress criteria")
+    raise RuntimeError(
+        "Could not construct an instance meeting the configured stress criteria "
+        f"after {config.max_attempts} attempts; rejections={rejections}"
+    )
